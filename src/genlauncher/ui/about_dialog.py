@@ -115,10 +115,10 @@ class AboutDialog(QDialog):
         return f"""
 <h3>What is GenLauncher-LP?</h3>
 <p>
-GenLauncher-LP (Linux Port) is a native Linux mod manager and launcher
-for <b>Command &amp; Conquer: Generals</b> and <b>Zero Hour</b> that runs
-through Steam/Proton. It lets you browse, download, install, and manage
-mods, patches, and addons from the community catalog with a single click.
+GenLauncher-LP (Linux Port) is a <b>native Linux application</b> — written
+in Python and PySide6, it runs directly on your system without Wine or Proton.
+It manages mods, patches, and addons for <b>Command &amp; Conquer: Generals</b>
+and <b>Zero Hour</b>, and launches the game through Steam/Proton.
 </p>
 
 <h3>Features</h3>

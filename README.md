@@ -15,8 +15,8 @@
 Runs the game through Steam/Proton — no Windows needed. Browse, download, install,
 and manage mods from the community catalog with a single click.
 
-This is an independent reimplementation (Linux Port). It is not affiliated with or
-endorsed by the original GenLauncher authors.
+A native Linux application written in Python + PySide6 — the launcher itself runs
+directly on your system, no Wine needed. Based on the GPL-3.0 GenLauncher Rewritten project.
 
 ## Screenshots
 

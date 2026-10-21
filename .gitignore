@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Testing
+.pytest_cache/
+tests/
+
+# Dev files (local only)
+devlog_genlauncher-linux.md
+uv.lock
+
+# IDE
+.idea/
+
+# Reference repos and docs (local only)
+Reference/
+Documents/
+
+# Claude
+.claude/
+
+# Screenshot originals (not for upload)
+SCREENSHOT DONT UPLOAD FOLDER TO THE GITHUB/
+
+# OS
+.DS_Store
+Thumbs.db

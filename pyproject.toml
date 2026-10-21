@@ -1,0 +1,44 @@
+[project]
+name = "genlauncher-linux"
+version = "0.3.1a1"
+description = "Native Linux mod manager for Command & Conquer: Generals / Zero Hour"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+keywords = ["c&c", "generals", "zero-hour", "mod", "launcher", "proton", "linux"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "PyYAML>=6.0",
+    "httpx>=0.27",
+    "platformdirs>=4.2",
+    "py7zr>=0.21",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6", "minio>=7.2"]
+rar = ["rarfile>=4.2"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+genlauncher = "genlauncher.cli:main"
+genlauncher-gui = "genlauncher.ui.app:run_gui"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/genlauncher"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

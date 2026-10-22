@@ -746,9 +746,11 @@ class ImageLoader(QThread):
                         data = cached.read_bytes()
                     except OSError:
                         data = b""
-                    if data:
+                    if data and self._sniff(data):
                         self.image_ready.emit(mod_name, data)
                         continue
+                    # Empty or corrupt cached file — remove and re-download.
+                    log.debug("removing corrupt cached image: %s", cached)
                     try:
                         cached.unlink()
                     except OSError:

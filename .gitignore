@@ -20,6 +20,7 @@ uv.lock
 # Reference repos and docs (local only)
 Reference/
 Documents/
+GenLauncherRewritten-reference/
 
 # Claude
 .claude/

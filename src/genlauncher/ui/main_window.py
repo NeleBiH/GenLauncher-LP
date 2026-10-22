@@ -445,6 +445,23 @@ class MainWindow(QWidget):
         self.about_btn.clicked.connect(self._on_about)
         right_panel.addWidget(self.about_btn)
 
+        # Version label — click to copy
+        from importlib.metadata import version as pkg_version
+        try:
+            _ver = pkg_version("genlauncher-linux")
+        except Exception:
+            _ver = "?"
+        self._version_label = QLabel(f"v{_ver}")
+        self._version_label.setFont(ui_font(9))
+        self._version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._version_label.setStyleSheet(
+            f"color: {c.inactive_border}; padding: 2px 0;"
+        )
+        self._version_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._version_label.setToolTip("Click to copy version to clipboard")
+        self._version_label.mousePressEvent = lambda _: self._copy_version(_ver)
+        right_panel.addWidget(self._version_label)
+
         # Launcher update button + progress (inside right panel, hidden by default)
         self.launcher_update_btn = QPushButton("Update!")
         self.launcher_update_btn.setFixedHeight(35)
@@ -666,6 +683,7 @@ class MainWindow(QWidget):
         pix = QPixmap()
         pix.loadFromData(data)
         if pix.isNull():
+            self._on_image_missing(mod_name)
             return
         # Scale to 500x100
         pix = pix.scaled(
@@ -2341,7 +2359,22 @@ class MainWindow(QWidget):
         self.update_launcher_btn.setEnabled(True)
         self.update_launcher_btn.setText("UPDATE LAUNCHER")
 
-    # ---- about --------------------------------------------------------------
+    # ---- about / version ----------------------------------------------------
+
+    def _copy_version(self, ver: str):
+        """Copy version string to clipboard with brief visual feedback."""
+        QApplication.clipboard().setText(f"GenLauncher-LP v{ver}")
+        old = self._version_label.text()
+        self._version_label.setText("Copied!")
+        self._version_label.setStyleSheet(
+            f"color: {DEFAULT_COLORS.active}; padding: 2px 0;"
+        )
+        QTimer.singleShot(1500, lambda: (
+            self._version_label.setText(old),
+            self._version_label.setStyleSheet(
+                f"color: {DEFAULT_COLORS.inactive_border}; padding: 2px 0;"
+            ),
+        ))
 
     def _on_about(self):
         from .about_dialog import AboutDialog

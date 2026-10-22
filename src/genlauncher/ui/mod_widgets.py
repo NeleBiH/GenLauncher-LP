@@ -19,7 +19,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QGraphicsOpacityEffect,
@@ -34,6 +34,46 @@ from PySide6.QtWidgets import (
 
 from ..core.models import ModificationVersion
 from .theme import ui_font, DEFAULT_COLORS
+
+
+# ---------------------------------------------------------------------------
+# Placeholder banner for mods without cover art
+# ---------------------------------------------------------------------------
+
+_placeholder_cache: dict[str, QPixmap] = {}
+
+
+def _make_placeholder_banner(text: str = "No Image Available", w: int = 500, h: int = 100) -> QPixmap:
+    """Generate a styled placeholder banner with a centered label."""
+    if text in _placeholder_cache:
+        return _placeholder_cache[text]
+    c = DEFAULT_COLORS
+    pix = QPixmap(w, h)
+    pix.fill(QColor(c.dark_bg))
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    # Border
+    painter.setPen(QPen(QColor(c.inactive_border), 1))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawRect(0, 0, w - 1, h - 1)
+    # Icon-like lines (simple image icon silhouette)
+    ic = QColor(c.inactive_border)
+    ic.setAlpha(80)
+    painter.setPen(QPen(ic, 2))
+    cx, cy = w // 2, h // 2 - 8
+    painter.drawRect(cx - 16, cy - 12, 32, 24)
+    painter.drawEllipse(cx - 6, cy - 6, 8, 8)
+    painter.drawLine(cx - 14, cy + 10, cx - 4, cy + 2)
+    painter.drawLine(cx - 4, cy + 2, cx + 4, cy + 8)
+    painter.drawLine(cx + 4, cy + 8, cx + 14, cy)
+    # Text
+    painter.setPen(QColor(c.inactive_border))
+    font = ui_font(9)
+    painter.setFont(font)
+    painter.drawText(0, cy + 18, w, 20, Qt.AlignmentFlag.AlignCenter, text)
+    painter.end()
+    _placeholder_cache[text] = pix
+    return pix
 
 
 # ---------------------------------------------------------------------------
@@ -272,18 +312,10 @@ class ModItemWidget(QWidget):
         """Set the 500×100 mod banner image."""
         self.image_label.setPixmap(pixmap)
 
-    def set_placeholder(self, text: str = "No preview"):
-        """Show a stand-in when the mod has no usable banner image.
-
-        Many catalog entries point at imgur/moddb URLs that rate-limit or 404,
-        and one points at a host that no longer exists. An empty bordered box
-        reads as a bug, so label it instead.
-        """
-        self.image_label.setPixmap(QPixmap())
-        self.image_label.setText(text)
-        f = self.image_label.font()
-        f.setPointSize(9)
-        self.image_label.setFont(f)
+    def set_placeholder(self, text: str = "No Image Available"):
+        """Show a styled banner when the mod has no usable cover art."""
+        self.image_label.setScaledContents(False)
+        self.image_label.setPixmap(_make_placeholder_banner(text))
 
     def set_versions(self, versions: list[str]):
         """Populate the version dropdown."""

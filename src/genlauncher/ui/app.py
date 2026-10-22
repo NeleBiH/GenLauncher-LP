@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from ..core.config import GENLAUNCHER_DISCORD, Paths, Settings
+from ..core.config import GENLAUNCHER_SUPPORT, Paths, Settings
 from ..core.link_overrides import LinkOverrides
 from .info_dialog import InfoDialog
 from .resources import apply_app_icon
@@ -70,7 +70,7 @@ def _install_exception_hook():
                     "GenLauncher — Error",
                     f"An unexpected error occurred:\n\n{exc_value}\n\n"
                     f"Details have been written to {Paths().log_file}\n\n"
-                    f"Support: {GENLAUNCHER_DISCORD}",
+                    f"Report: {GENLAUNCHER_SUPPORT}",
                 )
         except Exception:
             pass

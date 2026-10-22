@@ -30,8 +30,8 @@ STEAM_COMMON_SUBDIR = "ZH_Generals"
 GAME_EXE_CANDIDATES = ("generals.exe",)
 WORLD_BUILDER_EXE_CANDIDATES = ("worldbuilder.exe", "worldbuildernt27.exe")
 
-# GenLauncher community Discord.
-GENLAUNCHER_DISCORD = "https://discord.gg/fFGpudz5hV"
+# Support link for error dialogs.
+GENLAUNCHER_SUPPORT = "https://github.com/NeleBiH/GenLauncher-LP/issues"
 
 # Extensions treated as "custom" files: a mod overwrites them instead of
 # symlinking, so they get parked with REPLACE_SUFFIX rather than shadowed by a link.

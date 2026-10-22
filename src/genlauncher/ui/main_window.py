@@ -193,7 +193,7 @@ class MainWindow(QWidget):
             self.quickstart_btn, self.options_btn,
             self.mods_btn, self.patches_btn, self.addons_btn,
             self.exes_btn, self.add_mod_btn, self.add_from_files_btn,
-            self.patch_game_btn, self.about_btn,
+            self.patch_game_btn, self.update_launcher_btn, self.about_btn,
         ):
             btn.setEnabled(enabled)
         for child in self.findChildren(QListWidget):
@@ -269,18 +269,21 @@ class MainWindow(QWidget):
         self.launch_btn = QPushButton("LAUNCH GAME")
         self.launch_btn.setFixedHeight(40)
         self.launch_btn.setFont(ui_font(13))
+        self.launch_btn.setToolTip("Launch the game with selected mods through Steam/Proton")
         self.launch_btn.clicked.connect(self._on_launch)
         right_panel.addWidget(self.launch_btn)
 
         self.wb_btn = QPushButton("WORLD BUILDER")
         self.wb_btn.setFixedHeight(40)
         self.wb_btn.setFont(ui_font(13))
+        self.wb_btn.setToolTip("Open Zero Hour World Builder map editor")
         self.wb_btn.clicked.connect(self._on_world_builder)
         right_panel.addWidget(self.wb_btn)
 
         self.windowed_btn = QPushButton("CHANGE TO FULL SCREEN")
         self.windowed_btn.setFixedHeight(40)
         self.windowed_btn.setFont(ui_font(13))
+        self.windowed_btn.setToolTip("Toggle between windowed and fullscreen mode")
         self.windowed_btn.clicked.connect(self._toggle_windowed)
         self._update_windowed_btn()
         right_panel.addWidget(self.windowed_btn)
@@ -288,6 +291,7 @@ class MainWindow(QWidget):
         self.quickstart_btn = QPushButton("CHANGE TO NORMAL START")
         self.quickstart_btn.setFixedHeight(40)
         self.quickstart_btn.setFont(ui_font(13))
+        self.quickstart_btn.setToolTip("Toggle quickstart — skip intro videos and shell map")
         self.quickstart_btn.clicked.connect(self._toggle_quickstart)
         self._update_quickstart_btn()
         right_panel.addWidget(self.quickstart_btn)
@@ -295,12 +299,14 @@ class MainWindow(QWidget):
         self.options_btn = QPushButton("OPTIONS")
         self.options_btn.setFixedHeight(40)
         self.options_btn.setFont(ui_font(13))
+        self.options_btn.setToolTip("Graphics, camera, resolution, and launcher settings")
         self.options_btn.clicked.connect(self._open_options)
         right_panel.addWidget(self.options_btn)
 
         self.exit_btn = QPushButton("EXIT")
         self.exit_btn.setFixedHeight(40)
         self.exit_btn.setFont(ui_font(13))
+        self.exit_btn.setToolTip("Close the launcher")
         self.exit_btn.clicked.connect(self.close)
         right_panel.addWidget(self.exit_btn)
 
@@ -310,18 +316,21 @@ class MainWindow(QWidget):
         self.mods_btn = QPushButton("Mods")
         self.mods_btn.setFixedHeight(25)
         self.mods_btn.setFont(ui_font(10))
+        self.mods_btn.setToolTip("Show available mods")
         self.mods_btn.clicked.connect(self._show_mods_tab)
         right_panel.addWidget(self.mods_btn)
 
         self.patches_btn = QPushButton("Patches")
         self.patches_btn.setFixedHeight(25)
         self.patches_btn.setFont(ui_font(10))
+        self.patches_btn.setToolTip("Show available patches")
         self.patches_btn.clicked.connect(self._show_patches_tab)
         right_panel.addWidget(self.patches_btn)
 
         self.addons_btn = QPushButton("Addons")
         self.addons_btn.setFixedHeight(25)
         self.addons_btn.setFont(ui_font(10))
+        self.addons_btn.setToolTip("Show available addons")
         self.addons_btn.clicked.connect(self._show_addons_tab)
         right_panel.addWidget(self.addons_btn)
 
@@ -330,18 +339,21 @@ class MainWindow(QWidget):
         self.add_mod_btn = QPushButton("ADD MOD!")
         self.add_mod_btn.setFixedHeight(28)
         self.add_mod_btn.setFont(ui_font(12, bold=True))
+        self.add_mod_btn.setToolTip("Browse and add mods from the online catalog")
         self.add_mod_btn.clicked.connect(self._on_add_mod)
         right_panel.addWidget(self.add_mod_btn)
 
         self.exes_btn = QPushButton("Executable files")
         self.exes_btn.setFixedHeight(28)
         self.exes_btn.setFont(ui_font(10))
+        self.exes_btn.setToolTip("Manage game executables")
         self.exes_btn.clicked.connect(self._show_exes_tab)
         self.exes_btn.hide()  # Hidden: exe management via Options + PATCH GAME
 
         self.add_from_files_btn = QPushButton("Add mod from files")
         self.add_from_files_btn.setFixedHeight(28)
         self.add_from_files_btn.setFont(ui_font(11))
+        self.add_from_files_btn.setToolTip("Install a mod from local archive files")
         self.add_from_files_btn.clicked.connect(self._on_add_from_files)
         right_panel.addWidget(self.add_from_files_btn)
 
@@ -372,10 +384,27 @@ class MainWindow(QWidget):
         self.patch_game_btn = QPushButton("PATCH GAME")
         self.patch_game_btn.setFixedHeight(40)
         self.patch_game_btn.setFont(ui_font(13))
+        self.patch_game_btn.setToolTip("Download latest TheSuperHackers community-patched game executable")
         self.patch_game_btn.clicked.connect(self._on_patch_game)
         right_panel.addWidget(self.patch_game_btn)
 
+        patch_desc = QLabel("Download latest TheSuperHackers\ncommunity patch")
+        patch_desc.setFont(ui_font(8))
+        patch_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        patch_desc.setStyleSheet(f"color: {DEFAULT_COLORS.inactive_border};")
+        right_panel.addWidget(patch_desc)
+
         self._latest_patch_tag = ""  # filled by background check
+
+        right_panel.addSpacing(8)
+
+        # Update launcher button
+        self.update_launcher_btn = QPushButton("UPDATE LAUNCHER")
+        self.update_launcher_btn.setFixedHeight(32)
+        self.update_launcher_btn.setFont(ui_font(10))
+        self.update_launcher_btn.setToolTip("Check for and install GenLauncher-LP updates from GitHub")
+        self.update_launcher_btn.clicked.connect(self._on_update_launcher)
+        right_panel.addWidget(self.update_launcher_btn)
 
         # Push remaining space so buttons stay at top, about at bottom
         right_panel.addStretch(1)
@@ -395,10 +424,24 @@ class MainWindow(QWidget):
 
         right_panel.addSpacing(4)
 
+        # Report a bug button
+        self.report_bug_btn = QPushButton("Report a Bug")
+        self.report_bug_btn.setFixedHeight(24)
+        self.report_bug_btn.setFont(ui_font(9))
+        self.report_bug_btn.setToolTip("Open GitHub Issues page to report a bug")
+        self.report_bug_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.report_bug_btn.clicked.connect(
+            lambda: webbrowser.open("https://github.com/NeleBiH/GenLauncher-LP/issues")
+        )
+        right_panel.addWidget(self.report_bug_btn)
+
+        right_panel.addSpacing(2)
+
         # About button
         self.about_btn = QPushButton("About")
         self.about_btn.setFixedHeight(28)
         self.about_btn.setFont(ui_font(10))
+        self.about_btn.setToolTip("Credits, links, and feature overview")
         self.about_btn.clicked.connect(self._on_about)
         right_panel.addWidget(self.about_btn)
 
@@ -2152,6 +2195,93 @@ class MainWindow(QWidget):
     def _on_support(self, mv: ModificationVersion):
         if mv.support_link:
             webbrowser.open(mv.support_link)
+
+    # ---- update launcher -----------------------------------------------------
+
+    def _on_update_launcher(self):
+        """Check GitHub for a newer release and offer to update."""
+        import subprocess
+        import sys
+        from importlib.metadata import version as pkg_version
+        try:
+            current = pkg_version("genlauncher-linux")
+        except Exception:
+            current = "0.0.0"
+
+        self.update_launcher_btn.setEnabled(False)
+        self.update_launcher_btn.setText("Checking...")
+
+        try:
+            import httpx
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                resp = client.get(
+                    "https://api.github.com/repos/NeleBiH/GenLauncher-LP/releases/latest"
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            log.warning("Update check failed: %s", exc)
+            InfoDialog.warning(
+                self, "Update Check Failed",
+                f"Could not reach GitHub:\n{exc}",
+            )
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+
+        latest_tag = data.get("tag_name", "").lstrip("v")
+        if not latest_tag:
+            InfoDialog.information(self, "Update", "No releases found on GitHub.")
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+
+        if latest_tag == current:
+            InfoDialog.information(
+                self, "Up to Date",
+                f"You are running the latest version: v{current}",
+            )
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+
+        if not InfoDialog.question(
+            self, "Update Available",
+            f"Current version: v{current}\n"
+            f"Latest version: v{latest_tag}\n\n"
+            "Update now? This will run git pull and reinstall.",
+        ):
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+
+        # Run git pull + pip install in the project directory
+        self.update_launcher_btn.setText("Updating...")
+        project_dir = Path(__file__).resolve().parent.parent.parent.parent
+        try:
+            subprocess.run(
+                ["git", "pull", "--ff-only", "origin", "main"],
+                cwd=str(project_dir), check=True, capture_output=True, text=True,
+            )
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-e", str(project_dir),
+                 "--break-system-packages", "-q"],
+                check=True, capture_output=True, text=True,
+            )
+            InfoDialog.information(
+                self, "Updated",
+                f"GenLauncher-LP updated to v{latest_tag}.\n\n"
+                "Restart the launcher to use the new version.",
+            )
+        except subprocess.CalledProcessError as exc:
+            log.error("Update failed: %s\n%s", exc, exc.stderr)
+            InfoDialog.critical(
+                self, "Update Failed",
+                f"Update failed:\n{exc.stderr or exc}",
+            )
+
+        self.update_launcher_btn.setEnabled(True)
+        self.update_launcher_btn.setText("UPDATE LAUNCHER")
 
     # ---- about --------------------------------------------------------------
 

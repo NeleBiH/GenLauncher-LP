@@ -100,18 +100,26 @@ class KindBadge(QWidget):
 
         painter.setBrush(accent)
 
+        dark = QColor(self._colors.dark_bg)
+
         if self._kind is DialogKind.ERROR:
             painter.drawPath(_octagon_path())
+            painter.setBrush(dark)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(QRectF(23.5, 10, 5, 19), 2, 2)
             painter.drawEllipse(QRectF(23, 33, 6, 6))
         elif self._kind is DialogKind.WARNING_CONFIRMATION:
             painter.drawPolygon(
                 QPolygonF([QPointF(26, 6), QPointF(47, 44), QPointF(5, 44)])
             )
+            painter.setBrush(dark)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(QRectF(24, 16, 4, 16), 2, 2)
             painter.drawEllipse(QRectF(23.5, 36, 5, 5))
         else:
             painter.drawEllipse(QRectF(9, 9, 34, 34))
+            painter.setBrush(dark)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QRectF(23.5, 11, 5, 5))
             painter.drawRoundedRect(QRectF(23.5, 27, 5, 15), 2, 2)
 
@@ -232,7 +240,7 @@ class InfoDialog(QDialog):
         frame_layout.addWidget(
             KindBadge(self._icon_kind, self._colors, frame),
             0,
-            Qt.AlignmentFlag.AlignLeft,
+            Qt.AlignmentFlag.AlignCenter,
         )
 
         if self._detail:

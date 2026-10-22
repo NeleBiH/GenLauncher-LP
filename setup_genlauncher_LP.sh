@@ -41,7 +41,7 @@ show_banner() {
     ║          ─── L I N U X   P O R T ───                      ║
     ║                                                           ║
     ║   Mod Manager for C&C Generals / Zero Hour                ║
-    ║   Running natively on Linux via Steam & Proton            ║
+    ║   Native Linux app — launches game via Steam/Proton       ║
     ║                                                           ║
     ╚═══════════════════════════════════════════════════════════╝
 

@@ -44,7 +44,7 @@ class AboutDialog(QDialog):
         try:
             ver = pkg_version("genlauncher-linux")
         except Exception:
-            ver = "0.3.1a1"
+            ver = "0.1.1"
 
         # Title
         title = QLabel(f"GenLauncher-LP v{ver}", self)

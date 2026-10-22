@@ -455,7 +455,7 @@ class MainWindow(QWidget):
         self._version_label.setFont(ui_font(9))
         self._version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._version_label.setStyleSheet(
-            f"color: {c.inactive_border}; padding: 2px 0;"
+            f"color: {DEFAULT_COLORS.inactive_border}; padding: 2px 0;"
         )
         self._version_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self._version_label.setToolTip("Click to copy version to clipboard")

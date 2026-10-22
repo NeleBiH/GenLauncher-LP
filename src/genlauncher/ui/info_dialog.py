@@ -49,6 +49,7 @@ class DialogKind(str, Enum):
     INFO_ACTION = "info_action"
     ERROR = "error"
     WARNING_CONFIRMATION = "warning_confirmation"
+    SUCCESS = "success"
 
 
 def _octagon_path() -> QPainterPath:
@@ -84,6 +85,8 @@ class KindBadge(QWidget):
             return self._colors.error
         if self._kind is DialogKind.WARNING_CONFIRMATION:
             return self._colors.active
+        if self._kind is DialogKind.SUCCESS:
+            return "#4CAF50"
         return self._colors.border
 
     def paintEvent(self, event) -> None:  # noqa: D102 - Qt template method
@@ -102,7 +105,17 @@ class KindBadge(QWidget):
 
         dark = QColor(self._colors.dark_bg)
 
-        if self._kind is DialogKind.ERROR:
+        if self._kind is DialogKind.SUCCESS:
+            painter.drawEllipse(QRectF(9, 9, 34, 34))
+            check_pen = QPen(dark, 3.5)
+            check_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            check_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(check_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolyline(
+                QPolygonF([QPointF(17, 27), QPointF(23, 33), QPointF(35, 19)])
+            )
+        elif self._kind is DialogKind.ERROR:
             painter.drawPath(_octagon_path())
             painter.setBrush(dark)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -171,7 +184,7 @@ class InfoDialog(QDialog):
 
     @property
     def _ok_visible(self) -> bool:
-        return self._kind in (DialogKind.INFO, DialogKind.ERROR)
+        return self._kind in (DialogKind.INFO, DialogKind.ERROR, DialogKind.SUCCESS)
 
     @property
     def _action_visible(self) -> bool:
@@ -195,7 +208,7 @@ class InfoDialog(QDialog):
         ``badge`` lets a plain (single-OK) message carry the warning mark that
         QMessageBox would draw for it.
         """
-        if self._badge in (DialogKind.ERROR, DialogKind.WARNING_CONFIRMATION):
+        if self._badge in (DialogKind.ERROR, DialogKind.WARNING_CONFIRMATION, DialogKind.SUCCESS):
             return self._badge
         return DialogKind.INFO
 
@@ -306,6 +319,11 @@ class InfoDialog(QDialog):
     def information(cls, parent, title: str, text: str = "", *_args, **_kwargs) -> None:
         """Show an informational message. ``QMessageBox.information`` shape."""
         cls(title, text, DialogKind.INFO, parent=parent).exec()
+
+    @classmethod
+    def success(cls, parent, title: str, text: str = "", *_args, **_kwargs) -> None:
+        """Show a success message with a green checkmark badge."""
+        cls(title, text, DialogKind.SUCCESS, parent=parent).exec()
 
     @classmethod
     def warning(cls, parent, title: str, text: str = "", *_args, **_kwargs) -> None:

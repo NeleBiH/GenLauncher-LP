@@ -2340,7 +2340,7 @@ class MainWindow(QWidget):
                 continue
 
         if pip_ok:
-            InfoDialog.information(
+            InfoDialog.success(
                 self, "Updated",
                 f"GenLauncher-LP updated to v{latest_tag}.\n\n"
                 "Restart the launcher to use the new version.",

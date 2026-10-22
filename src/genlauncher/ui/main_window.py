@@ -63,6 +63,7 @@ from .workers import (
     GameRunner,
     ImageLoader,
     IntegrityWorker,
+    LauncherUpdateCheckWorker,
     LinkWorker,
     S3DownloadInstallWorker,
     UnlinkWorker,
@@ -172,6 +173,7 @@ class MainWindow(QWidget):
             )
 
         self._check_patch_version()
+        self._check_launcher_version()
 
     def _on_catalog_error(self, message: str):
         log.error("Catalog error: %s", message)
@@ -193,7 +195,7 @@ class MainWindow(QWidget):
             self.quickstart_btn, self.options_btn,
             self.mods_btn, self.patches_btn, self.addons_btn,
             self.exes_btn, self.add_mod_btn, self.add_from_files_btn,
-            self.patch_game_btn, self.update_launcher_btn, self.about_btn,
+            self.patch_game_btn, self.about_btn,
         ):
             btn.setEnabled(enabled)
         for child in self.findChildren(QListWidget):
@@ -398,12 +400,14 @@ class MainWindow(QWidget):
 
         right_panel.addSpacing(8)
 
-        # Update launcher button
+        # Update launcher button — hidden until background check finds a new version
         self.update_launcher_btn = QPushButton("UPDATE LAUNCHER")
         self.update_launcher_btn.setFixedHeight(32)
         self.update_launcher_btn.setFont(ui_font(10))
-        self.update_launcher_btn.setToolTip("Check for and install GenLauncher-LP updates from GitHub")
+        self.update_launcher_btn.setToolTip("Download and install the latest GenLauncher-LP version")
         self.update_launcher_btn.clicked.connect(self._on_update_launcher)
+        self.update_launcher_btn.hide()
+        self._latest_launcher_tag = ""
         right_panel.addWidget(self.update_launcher_btn)
 
         # Push remaining space so buttons stay at top, about at bottom
@@ -2216,64 +2220,33 @@ class MainWindow(QWidget):
 
     # ---- update launcher -----------------------------------------------------
 
+    def _check_launcher_version(self):
+        """Background check for a newer GenLauncher-LP release on GitHub."""
+        worker = LauncherUpdateCheckWorker(parent=self)
+        worker.result.connect(self._on_launcher_check_result)
+        self._launcher_check_worker = worker
+        worker.start()
+
+    def _on_launcher_check_result(self, latest_tag: str, current: str):
+        """Show or hide the update button based on version comparison."""
+        self._launcher_check_worker = None
+        if not latest_tag or latest_tag == current:
+            self.update_launcher_btn.hide()
+            return
+        self._latest_launcher_tag = latest_tag
+        self.update_launcher_btn.setText(f"UPDATE TO v{latest_tag}")
+        self.update_launcher_btn.show()
+
     def _on_update_launcher(self):
-        """Check GitHub for a newer release and offer to update."""
+        """Run git pull + pip install to update the launcher."""
         import subprocess
         import sys
-        from importlib.metadata import version as pkg_version
-        try:
-            current = pkg_version("genlauncher-linux")
-        except Exception:
-            current = "0.0.0"
+
+        latest_tag = self._latest_launcher_tag
+        if not latest_tag:
+            return
 
         self.update_launcher_btn.setEnabled(False)
-        self.update_launcher_btn.setText("Checking...")
-
-        try:
-            import httpx
-            with httpx.Client(timeout=15, follow_redirects=True) as client:
-                resp = client.get(
-                    "https://api.github.com/repos/NeleBiH/GenLauncher-LP/releases/latest"
-                )
-                resp.raise_for_status()
-                data = resp.json()
-        except Exception as exc:
-            log.warning("Update check failed: %s", exc)
-            InfoDialog.warning(
-                self, "Update Check Failed",
-                f"Could not reach GitHub:\n{exc}",
-            )
-            self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
-            return
-
-        latest_tag = data.get("tag_name", "").lstrip("v")
-        if not latest_tag:
-            InfoDialog.information(self, "Update", "No releases found on GitHub.")
-            self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
-            return
-
-        if latest_tag == current:
-            InfoDialog.information(
-                self, "Up to Date",
-                f"You are running the latest version: v{current}",
-            )
-            self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
-            return
-
-        if not InfoDialog.question(
-            self, "Update Available",
-            f"Current version: v{current}\n"
-            f"Latest version: v{latest_tag}\n\n"
-            "Update now? This will run git pull and reinstall.",
-        ):
-            self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
-            return
-
-        # Run git pull + pip install in the project directory
         self.update_launcher_btn.setText("Updating...")
         project_dir = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -2291,7 +2264,6 @@ class MainWindow(QWidget):
                 "  cd ~/GenLauncher-LP && git pull",
             )
             self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
             return
         except subprocess.CalledProcessError as exc:
             stderr = (exc.stderr or "").strip()
@@ -2306,7 +2278,6 @@ class MainWindow(QWidget):
                 msg = f"git pull failed:\n{stderr}" if stderr else "git pull failed."
             InfoDialog.critical(self, "Update Failed", msg)
             self.update_launcher_btn.setEnabled(True)
-            self.update_launcher_btn.setText("UPDATE LAUNCHER")
             return
 
         # ── Step 2: pip install — try multiple approaches ──
@@ -2314,26 +2285,21 @@ class MainWindow(QWidget):
         pip_commands = []
         if venv_pip.is_file():
             pip_commands.append(
-                ([str(venv_pip), "install", "-e", str(project_dir), "-q"],
-                 "venv pip")
+                [str(venv_pip), "install", "-e", str(project_dir), "-q"],
             )
         pip_commands.append(
-            ([sys.executable, "-m", "pip", "install", "-e", str(project_dir),
-              "--break-system-packages", "-q"],
-             "python -m pip")
+            [sys.executable, "-m", "pip", "install", "-e", str(project_dir),
+             "--break-system-packages", "-q"],
         )
         pip_commands.append(
-            (["pip3", "install", "-e", str(project_dir),
-              "--break-system-packages", "-q"],
-             "pip3")
+            ["pip3", "install", "-e", str(project_dir),
+             "--break-system-packages", "-q"],
         )
 
         pip_ok = False
-        for cmd, label in pip_commands:
+        for cmd in pip_commands:
             try:
-                subprocess.run(
-                    cmd, check=True, capture_output=True, text=True,
-                )
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
                 pip_ok = True
                 break
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -2356,8 +2322,7 @@ class MainWindow(QWidget):
                 "  cd ~/GenLauncher-LP && .venv/bin/pip install -e .",
             )
 
-        self.update_launcher_btn.setEnabled(True)
-        self.update_launcher_btn.setText("UPDATE LAUNCHER")
+        self.update_launcher_btn.hide()
 
     # ---- about / version ----------------------------------------------------
 

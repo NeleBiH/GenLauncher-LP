@@ -607,6 +607,33 @@ class PatchCheckWorker(QThread):
             self.result.emit("")
 
 
+class LauncherUpdateCheckWorker(QThread):
+    """Check GitHub for a newer GenLauncher-LP release."""
+
+    result = Signal(str, str)  # (latest_tag, current_version) or ("", "")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def run(self):
+        import httpx
+        from importlib.metadata import version as pkg_version
+        try:
+            current = pkg_version("genlauncher-linux")
+        except Exception:
+            current = "0.0.0"
+        try:
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                resp = client.get(
+                    "https://api.github.com/repos/NeleBiH/GenLauncher-LP/releases/latest"
+                )
+                resp.raise_for_status()
+                tag = resp.json().get("tag_name", "").lstrip("v")
+            self.result.emit(tag, current)
+        except Exception:
+            self.result.emit("", current)
+
+
 class GamePatchWorker(QThread):
     """Download and install the latest TheSuperHackers community patch."""
 

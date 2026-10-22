@@ -2258,26 +2258,84 @@ class MainWindow(QWidget):
         # Run git pull + pip install in the project directory
         self.update_launcher_btn.setText("Updating...")
         project_dir = Path(__file__).resolve().parent.parent.parent.parent
+
+        # ── Step 1: git pull ──
         try:
             subprocess.run(
                 ["git", "pull", "--ff-only", "origin", "main"],
                 cwd=str(project_dir), check=True, capture_output=True, text=True,
             )
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-e", str(project_dir),
-                 "--break-system-packages", "-q"],
-                check=True, capture_output=True, text=True,
+        except FileNotFoundError:
+            InfoDialog.critical(
+                self, "Update Failed",
+                "git is not installed.\n\n"
+                "Install git and try again, or update manually:\n"
+                "  cd ~/GenLauncher-LP && git pull",
             )
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            if "divergent" in stderr or "not possible to fast-forward" in stderr:
+                msg = (
+                    "Your local files have been modified.\n\n"
+                    "To update, run manually in a terminal:\n"
+                    "  cd ~/GenLauncher-LP\n"
+                    "  git stash && git pull && git stash pop"
+                )
+            else:
+                msg = f"git pull failed:\n{stderr}" if stderr else "git pull failed."
+            InfoDialog.critical(self, "Update Failed", msg)
+            self.update_launcher_btn.setEnabled(True)
+            self.update_launcher_btn.setText("UPDATE LAUNCHER")
+            return
+
+        # ── Step 2: pip install — try multiple approaches ──
+        venv_pip = project_dir / ".venv" / "bin" / "pip"
+        pip_commands = []
+        if venv_pip.is_file():
+            pip_commands.append(
+                ([str(venv_pip), "install", "-e", str(project_dir), "-q"],
+                 "venv pip")
+            )
+        pip_commands.append(
+            ([sys.executable, "-m", "pip", "install", "-e", str(project_dir),
+              "--break-system-packages", "-q"],
+             "python -m pip")
+        )
+        pip_commands.append(
+            (["pip3", "install", "-e", str(project_dir),
+              "--break-system-packages", "-q"],
+             "pip3")
+        )
+
+        pip_ok = False
+        for cmd, label in pip_commands:
+            try:
+                subprocess.run(
+                    cmd, check=True, capture_output=True, text=True,
+                )
+                pip_ok = True
+                break
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+
+        if pip_ok:
             InfoDialog.information(
                 self, "Updated",
                 f"GenLauncher-LP updated to v{latest_tag}.\n\n"
                 "Restart the launcher to use the new version.",
             )
-        except subprocess.CalledProcessError as exc:
-            log.error("Update failed: %s\n%s", exc, exc.stderr)
-            InfoDialog.critical(
-                self, "Update Failed",
-                f"Update failed:\n{exc.stderr or exc}",
+        else:
+            log.warning("pip install failed — code was pulled but not reinstalled")
+            InfoDialog.warning(
+                self, "Partially Updated",
+                f"Code updated to v{latest_tag}, but package "
+                "reinstall failed (pip not available).\n\n"
+                "The update should still work after a restart.\n"
+                "If not, run in a terminal:\n"
+                "  cd ~/GenLauncher-LP && .venv/bin/pip install -e .",
             )
 
         self.update_launcher_btn.setEnabled(True)

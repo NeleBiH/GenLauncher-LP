@@ -2239,6 +2239,7 @@ class MainWindow(QWidget):
             return
         self._latest_launcher_tag = latest_tag
         self.update_launcher_btn.setText(f"UPDATE TO v{latest_tag}")
+        self.update_launcher_btn.setStyleSheet("color: #ffcc00;")
         self.update_launcher_btn.show()
 
     def _on_update_launcher(self):

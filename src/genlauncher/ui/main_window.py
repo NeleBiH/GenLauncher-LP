@@ -398,7 +398,7 @@ class MainWindow(QWidget):
 
         self._latest_patch_tag = ""  # filled by background check
 
-        right_panel.addSpacing(8)
+        right_panel.addSpacing(12)
 
         # Update launcher button — hidden until background check finds a new version
         self.update_launcher_btn = QPushButton("UPDATE LAUNCHER")

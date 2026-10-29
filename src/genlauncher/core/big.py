@@ -159,14 +159,31 @@ def contains_gamedata_ini(path: Path) -> bool:
     return False
 
 
-def find_big_with_gamedata(mod_folders: list[Path]) -> Path | None:
-    """Find the first .big file containing GameData.ini across mod folders."""
+def find_big_with_gamedata(
+    mod_folders: list[Path],
+    fallback_folders: list[Path] | None = None,
+) -> Path | None:
+    """Find the first .big/.gib file containing GameData.ini.
+
+    Searches *mod_folders* first (both .big and .gib, since installed mods
+    store their archives as .gib). If nothing is found and *fallback_folders*
+    is given (typically the game directory), those are searched for .big files.
+    """
     for folder in mod_folders:
         if not folder.is_dir():
             continue
-        for big_file in sorted(folder.rglob("*.big")):
-            if contains_gamedata_ini(big_file):
-                return big_file
+        # Mods store archives as .gib; also check .big in case of loose files
+        for pattern in ("*.gib", "*.big"):
+            for big_file in sorted(folder.rglob(pattern)):
+                if contains_gamedata_ini(big_file):
+                    return big_file
+    if fallback_folders:
+        for folder in fallback_folders:
+            if not folder.is_dir():
+                continue
+            for big_file in sorted(folder.rglob("*.big")):
+                if contains_gamedata_ini(big_file):
+                    return big_file
     return None
 
 

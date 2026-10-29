@@ -1245,9 +1245,11 @@ class MainWindow(QWidget):
         patched_big: Path | None = None
         if self._settings.camera_height > 0:
             if selected:
-                # Patch the mod's .big file
+                # Patch the mod's .big/.gib first; fall back to base game .big
                 mod_folders = [v.folder_name(self._paths.mods_dir) for v in selected]
-                big_file = find_big_with_gamedata(mod_folders)
+                big_file = find_big_with_gamedata(
+                    mod_folders, fallback_folders=[install.game_dir],
+                )
             else:
                 # Vanilla launch: patch the game's own .big file
                 big_file = find_big_with_gamedata([install.game_dir])
@@ -1376,7 +1378,9 @@ class MainWindow(QWidget):
 
             if self._settings.camera_height > 0:
                 mod_folders = [v.folder_name(self._paths.mods_dir) for v in selected]
-                big_file = find_big_with_gamedata(mod_folders)
+                big_file = find_big_with_gamedata(
+                    mod_folders, fallback_folders=[install.game_dir],
+                )
                 if big_file and set_camera_height(big_file, self._settings.camera_height):
                     patched_big = big_file
                     self._pending_camera_big = patched_big

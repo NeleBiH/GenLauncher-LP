@@ -21,8 +21,10 @@ from PySide6.QtGui import (
     QBrush,
     QFont,
     QIcon,
+    QKeySequence,
     QPainter,
     QPixmap,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -156,6 +158,7 @@ class MainWindow(QWidget):
         self._catalog_worker.start()
 
     def _on_catalog_loaded(self, catalog_result):
+        self._catalog_worker = None
         self._loading_bar.hide()
         self.version_label.show()
         self._set_ui_enabled(True)
@@ -175,7 +178,17 @@ class MainWindow(QWidget):
         self._check_patch_version()
         self._check_launcher_version()
 
+    def _refresh_catalog(self):
+        """Force-refresh the catalog (Ctrl+R)."""
+        if getattr(self, "_catalog_worker", None) is not None:
+            return  # already loading
+        saved_ttl = self._settings.catalog_ttl
+        self._settings.catalog_ttl = 0  # bypass cache for this load
+        self.start_catalog_load()
+        self._settings.catalog_ttl = saved_ttl
+
     def _on_catalog_error(self, message: str):
+        self._catalog_worker = None
         log.error("Catalog error: %s", message)
         self._loading_bar.hide()
         self.version_label.show()
@@ -393,7 +406,7 @@ class MainWindow(QWidget):
         patch_desc = QLabel("Download latest TheSuperHackers\ncommunity patch")
         patch_desc.setFont(ui_font(8))
         patch_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        patch_desc.setStyleSheet(f"color: {DEFAULT_COLORS.inactive_border};")
+        patch_desc.setStyleSheet("color: #ffcc00;")
         right_panel.addWidget(patch_desc)
 
         self._latest_patch_tag = ""  # filled by background check
@@ -497,24 +510,11 @@ class MainWindow(QWidget):
         content_row.addWidget(right_frame)
         main_layout.addLayout(content_row, 1)  # stretch=1 for main content
 
-        # ---- Bottom bar: version labels (bottom-left corner) ----
+        # ---- Bottom bar: loading bar + patch version ----
         bottom_bar = QHBoxLayout()
         bottom_bar.setContentsMargins(0, 2, 0, 0)
 
-        from importlib.metadata import version as pkg_version
-        try:
-            ver = pkg_version("genlauncher-linux")
-        except Exception:
-            ver = "0.1.0-alpha"
-
-        self.version_label = QLabel(f"GenLauncher-LP v{ver}")
-        self.version_label.setFixedHeight(20)
-        self.version_label.setFont(ui_font(10))
-        bottom_bar.addWidget(self.version_label)
-
-        bottom_bar.addStretch(1)  # push label to the left
-
-        # Loading progress bar (replaces version label while catalog loads)
+        # Loading progress bar (visible only during catalog fetch)
         self._loading_bar = QProgressBar()
         self._loading_bar.setFixedHeight(20)
         self._loading_bar.setRange(0, 0)  # indeterminate
@@ -522,6 +522,14 @@ class MainWindow(QWidget):
         self._loading_bar.setFormat("Loading catalog...")
         bottom_bar.addWidget(self._loading_bar)
         self._loading_bar.hide()
+
+        # Invisible spacer label — keeps the same ID so start_catalog_load can
+        # hide/show it without crashing.  The clickable version is in the right panel.
+        self.version_label = QLabel()
+        self.version_label.setFixedHeight(0)
+        bottom_bar.addWidget(self.version_label)
+
+        bottom_bar.addStretch(1)
 
         # Game patch version (bottom-right corner)
         tag = self._settings.community_patch_tag
@@ -532,6 +540,12 @@ class MainWindow(QWidget):
         bottom_bar.addWidget(self._patch_version_label)
 
         main_layout.addLayout(bottom_bar)
+
+        # ---- Keyboard shortcuts ----
+        QShortcut(QKeySequence("Ctrl+Q"), self, self.close)
+        QShortcut(QKeySequence("Ctrl+F"), self, self._search_bar.setFocus)
+        QShortcut(QKeySequence("Ctrl+R"), self, self._refresh_catalog)
+        QShortcut(QKeySequence("Escape"), self, self._search_bar.clear)
 
     # ---- tab switching ------------------------------------------------------
 
@@ -1240,23 +1254,37 @@ class MainWindow(QWidget):
             log.warning("launching vanilla: nothing is selected")
 
         # Apply camera height patch before linking
-        from ..core.big import find_big_with_gamedata, set_camera_height
+        from ..core.big import (
+            find_big_with_gamedata, find_loose_gamedata_ini,
+            set_camera_height, set_camera_height_loose,
+        )
 
         patched_big: Path | None = None
         if self._settings.camera_height > 0:
             if selected:
-                # Patch the mod's .big/.gib first; fall back to base game .big
                 mod_folders = [v.folder_name(self._paths.mods_dir) for v in selected]
-                big_file = find_big_with_gamedata(
-                    mod_folders, fallback_folders=[install.game_dir],
-                )
+                # Loose files override .big archives in the SAGE engine,
+                # so patch the loose GameData.ini when present.
+                loose_ini = find_loose_gamedata_ini(mod_folders)
+                if loose_ini:
+                    if set_camera_height_loose(loose_ini, self._settings.camera_height):
+                        patched_big = loose_ini
+                        self._pending_camera_big = patched_big
+                else:
+                    big_file = find_big_with_gamedata(
+                        mod_folders, fallback_folders=[install.game_dir],
+                    )
+                    if big_file:
+                        if set_camera_height(big_file, self._settings.camera_height):
+                            patched_big = big_file
+                            self._pending_camera_big = patched_big
             else:
                 # Vanilla launch: patch the game's own .big file
                 big_file = find_big_with_gamedata([install.game_dir])
-            if big_file:
-                if set_camera_height(big_file, self._settings.camera_height):
-                    patched_big = big_file
-                    self._pending_camera_big = patched_big
+                if big_file:
+                    if set_camera_height(big_file, self._settings.camera_height):
+                        patched_big = big_file
+                        self._pending_camera_big = patched_big
 
         # Link
         self._disable_ui()
@@ -1374,16 +1402,25 @@ class MainWindow(QWidget):
             runner.start()
 
         if selected:
-            from ..core.big import find_big_with_gamedata, set_camera_height
+            from ..core.big import (
+                find_big_with_gamedata, find_loose_gamedata_ini,
+                set_camera_height, set_camera_height_loose,
+            )
 
             if self._settings.camera_height > 0:
                 mod_folders = [v.folder_name(self._paths.mods_dir) for v in selected]
-                big_file = find_big_with_gamedata(
-                    mod_folders, fallback_folders=[install.game_dir],
-                )
-                if big_file and set_camera_height(big_file, self._settings.camera_height):
-                    patched_big = big_file
-                    self._pending_camera_big = patched_big
+                loose_ini = find_loose_gamedata_ini(mod_folders)
+                if loose_ini:
+                    if set_camera_height_loose(loose_ini, self._settings.camera_height):
+                        patched_big = loose_ini
+                        self._pending_camera_big = patched_big
+                else:
+                    big_file = find_big_with_gamedata(
+                        mod_folders, fallback_folders=[install.game_dir],
+                    )
+                    if big_file and set_camera_height(big_file, self._settings.camera_height):
+                        patched_big = big_file
+                        self._pending_camera_big = patched_big
 
             self._disable_ui()
             link_worker = LinkWorker(
@@ -2445,6 +2482,16 @@ class MainWindow(QWidget):
                 "The game is still running. Close the game first.",
             )
             return
+
+        # Confirm before cancelling active downloads.
+        if self._active_downloads:
+            if not InfoDialog.question(
+                self, "Downloads Active",
+                f"{len(self._active_downloads)} download(s) in progress.\n"
+                "Close anyway? All downloads will be cancelled.",
+            ):
+                event.ignore()
+                return
 
         # Cancel any active downloads and wait for the threads to actually
         # finish. cancel() only requests; returning while a QThread is still

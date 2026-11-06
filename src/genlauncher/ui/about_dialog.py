@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QLabel,
     QPushButton,
@@ -82,11 +83,39 @@ class AboutDialog(QDialog):
         content.setMinimumSize(555, body.height() + 16)
         scroll.setWidget(content)
 
+        # Copy Log Path button
+        log_btn = QPushButton("Copy Log Path", self)
+        log_btn.setGeometry(20, 478, 140, 32)
+        log_btn.setFont(ui_font(10))
+        log_btn.setToolTip("Copy the launcher log file path to clipboard (for bug reports)")
+        log_btn.clicked.connect(self._copy_log_path)
+
+        # GitHub button
+        gh_btn = QPushButton("GitHub", self)
+        gh_btn.setGeometry(170, 478, 120, 32)
+        gh_btn.setFont(ui_font(10))
+        gh_btn.setToolTip("Open the GenLauncher-LP GitHub repository")
+        gh_btn.clicked.connect(self._open_github)
+
         # Close button
         close_btn = QPushButton("Close", self)
-        close_btn.setGeometry(250, 478, 120, 32)
+        close_btn.setGeometry(460, 478, 120, 32)
         close_btn.setFont(ui_font(11))
         close_btn.clicked.connect(self.accept)
+
+    def _copy_log_path(self):
+        from ..core.config import Paths
+        from PySide6.QtCore import QTimer
+        log_path = str(Paths().log_file)
+        QApplication.clipboard().setText(log_path)
+        btn = self.sender()
+        btn.setText("Copied!")
+        QTimer.singleShot(1500, lambda: btn.setText("Copy Log Path"))
+
+    @staticmethod
+    def _open_github():
+        import webbrowser
+        webbrowser.open("https://github.com/NeleBiH/GenLauncher-LP")
 
     @staticmethod
     def _about_html() -> str:

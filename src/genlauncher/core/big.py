@@ -159,6 +159,31 @@ def contains_gamedata_ini(path: Path) -> bool:
     return False
 
 
+def find_loose_gamedata_ini(folders: list[Path]) -> Path | None:
+    """Find a loose data/INI/GameData.ini in mod folders (case-insensitive).
+
+    Some mods ship loose INI files instead of .big archives. The SAGE engine
+    loads loose files with higher priority than .big contents, so a camera
+    height patch must target the loose file when it exists.
+    """
+    for folder in folders:
+        if not folder.is_dir():
+            continue
+        try:
+            for data_dir in folder.iterdir():
+                if not data_dir.is_dir() or data_dir.name.lower() != "data":
+                    continue
+                for ini_dir in data_dir.iterdir():
+                    if not ini_dir.is_dir() or ini_dir.name.lower() != "ini":
+                        continue
+                    for f in ini_dir.iterdir():
+                        if f.is_file() and f.name.lower() == "gamedata.ini":
+                            return f
+        except OSError:
+            continue
+    return None
+
+
 def find_big_with_gamedata(
     mod_folders: list[Path],
     fallback_folders: list[Path] | None = None,
@@ -291,6 +316,40 @@ def set_camera_height(big_path: Path, height: int) -> bool:
         return True
     except OSError as exc:
         log.error("Failed to patch camera height in %s: %s", big_path, exc)
+        return False
+
+
+def set_camera_height_loose(ini_path: Path, height: int) -> bool:
+    """Patch MaxCameraHeight in a loose GameData.ini text file.
+
+    Creates a .GOF backup before modifying. Returns True on success.
+    Unlike .big patching, the text file can change size freely.
+    """
+    if height <= 0:
+        return False
+
+    try:
+        content = ini_path.read_text(encoding="ascii", errors="replace")
+        found = _locate_camera_height(content)
+        if found is None:
+            log.warning("MaxCameraHeight not parseable in %s", ini_path)
+            return False
+
+        span_start, span_end, decimals, lead = found
+        value_str = _format_camera_value(height, decimals)
+        new_value = " " * lead + value_str
+
+        new_content = content[:span_start] + new_value + content[span_end:]
+
+        backup = ini_path.with_name(ini_path.name + ORIGINAL_SUFFIX)
+        if not backup.exists():
+            shutil.copy2(ini_path, backup)
+
+        ini_path.write_text(new_content, encoding="ascii")
+        log.info("Set camera height to %d in loose %s", height, ini_path.name)
+        return True
+    except OSError as exc:
+        log.error("Failed to patch camera height in %s: %s", ini_path, exc)
         return False
 
 

@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in the launcher doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Launcher version
+      description: Shown under the About button (for example v0.3.0).
+    validations:
+      required: true
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options:
+        - Zero Hour
+        - Generals
+    validations:
+      required: true
+  - type: input
+    id: mod
+    attributes:
+      label: Mod / patch / addon
+      description: Name and version, if the problem is with a specific one.
+  - type: input
+    id: system
+    attributes:
+      label: Distro and Proton version
+      placeholder: e.g. Arch Linux, Proton 9.0
+  - type: textarea
+    id: log
+    attributes:
+      label: Launcher log
+      description: About → Copy Log Path, then paste the end of that file here.
+      render: text

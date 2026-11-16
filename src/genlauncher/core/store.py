@@ -13,7 +13,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import ADDONS_DIR, EXECUTABLES_DIR, PATCHES_DIR
+from .config import ADDONS_DIR, EXECUTABLES_DIR, PATCHES_DIR, TEMP_SUFFIX
+from .installer import BACKUP_SUFFIX
 from .models import ORIGINAL_GAME_ALIAS, ModificationVersion, ModType
 
 log = logging.getLogger(__name__)
@@ -258,6 +259,8 @@ class ModStore:
                         continue
                     versions: dict[str, ModificationVersion] = {}
                     for ver_dir in sorted(p for p in name_dir.iterdir() if p.is_dir()):
+                        if ver_dir.name.endswith(_IN_PROGRESS_SUFFIXES):
+                            continue  # staging or backup of an install in flight
                         mv = ModificationVersion(
                             name=name_dir.name,
                             version=ver_dir.name,
@@ -280,6 +283,9 @@ class ModStore:
         if changed:
             self.save()
         return changed
+
+
+_IN_PROGRESS_SUFFIXES = (TEMP_SUFFIX, BACKUP_SUFFIX)
 
 
 def prune_empty_parents(folder: Path, stop_at: Path) -> None:

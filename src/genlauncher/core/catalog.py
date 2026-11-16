@@ -12,22 +12,23 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import httpx
 import yaml
 
+from .. import __version__
 from .link_overrides import LinkOverrides
 from .models import Catalog, ModificationVersion, ModType, RawModEntry
 
 log = logging.getLogger(__name__)
 
 ROOT_CATALOG_URLS = {
-    "zh": "https://raw.githubusercontent.com/p0ls3r/GenLauncherModsData/master/ReposModificationDataZH4.yaml",
+    "zh": "https://raw.githubusercontent.com/p0ls3r/GenLauncherModsData/master/ReposModificationDataZH3.yaml",
     "generals": "https://raw.githubusercontent.com/p0ls3r/GenLauncherModsData/master/ReposModificationDataGenerals3.yaml",
 }
 
-USER_AGENT = "GenLauncherLinux/0.1 (+https://github.com/p0ls3r/GenLauncher)"
+USER_AGENT = f"GenLauncherLinux/{__version__} (+https://github.com/NeleBiH/GenLauncher-LP)"
 
 
 class CatalogError(RuntimeError):
@@ -77,7 +78,9 @@ class CatalogClient:
         timeout: float = 20.0,
         transport: httpx.BaseTransport | None = None,
         link_overrides: "LinkOverrides | None" = None,
+        cancel: "Callable[[], bool] | None" = None,
     ) -> None:
+        self._cancel = cancel
         self._cache_dir = Path(cache_dir)
         self._ttl = ttl
         self._timeout = timeout
@@ -141,6 +144,9 @@ class CatalogClient:
 
         if fresh:
             return cached[0], True
+
+        if url and self._cancel is not None and self._cancel():
+            raise CatalogError("catalog load cancelled")
 
         if url:
             try:

@@ -149,19 +149,29 @@ def extract_archive(archive: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
 
     suffix = archive.suffix.casefold()
-    if suffix == ".zip":
-        _extract_zip(archive, target)
-    elif suffix == ".7z":
-        _extract_7z(archive, target)
-    elif suffix == ".rar":
-        _extract_rar(archive, target)
-    elif tarfile.is_tarfile(archive):
-        with tarfile.open(archive) as tf:
-            for member in tf.getmembers():
-                _assert_inside(target, member.name)
-            tf.extractall(path=target, filter="data")
-    else:
-        raise InstallError(f"unsupported archive format: {archive.name}")
+    try:
+        if suffix == ".zip":
+            _extract_zip(archive, target)
+        elif suffix == ".7z":
+            _extract_7z(archive, target)
+        elif suffix == ".rar":
+            _extract_rar(archive, target)
+        elif tarfile.is_tarfile(archive):
+            with tarfile.open(archive) as tf:
+                for member in tf.getmembers():
+                    _assert_inside(target, member.name)
+                tf.extractall(path=target, filter="data")
+        else:
+            raise InstallError(f"unsupported archive format: {archive.name}")
+    except InstallError:
+        raise
+    except OSError as exc:
+        raise InstallError(f"cannot extract {archive.name}: {exc}") from exc
+    except Exception as exc:
+        raise InstallError(
+            f"{archive.name} is damaged or not a valid archive ({exc}). "
+            "Try downloading it again."
+        ) from exc
 
 
 def is_archive(path: Path) -> bool:

@@ -174,7 +174,7 @@ class ModItemWidget(QWidget):
     rating_changed = Signal(str, int)  # mod_name, new_rating (0-5)
 
     WIDGET_WIDTH = 550
-    WIDGET_HEIGHT = 168
+    WIDGET_HEIGHT = 180
 
     def __init__(self, mv: ModificationVersion, parent=None):
         super().__init__(parent)
@@ -249,8 +249,8 @@ class ModItemWidget(QWidget):
         self.info_label.setStyleSheet(f"color: {DEFAULT_COLORS.download_text};")
         self.info_label.hide()
 
-        # Row 4: Buttons (y=138, h=28)
-        btn_y = 138
+        # Row 4: Buttons below the progress bar, clear of the item border
+        btn_y = 145
 
         self.update_btn = QPushButton("Update!", self)
         self.update_btn.setGeometry(5, btn_y, 125, 28)
@@ -437,8 +437,8 @@ class AddonItemWidget(QWidget):
         self.info_label.setStyleSheet(f"color: {DEFAULT_COLORS.download_text};")
         self.info_label.hide()
 
-        # Row 3: Buttons (y=76, h=33)
-        btn_y = 76
+        # Row 3: Buttons, clear of the item border
+        btn_y = 72
 
         self.update_btn = QPushButton("Update!", self)
         self.update_btn.setGeometry(5, btn_y, 125, 28)

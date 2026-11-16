@@ -41,11 +41,7 @@ class AboutDialog(QDialog):
     def _build_ui(self):
         c = DEFAULT_COLORS
 
-        from importlib.metadata import version as pkg_version
-        try:
-            ver = pkg_version("genlauncher-linux")
-        except Exception:
-            ver = "0.1.1"
+        from .. import __version__ as ver
 
         # Title
         title = QLabel(f"GenLauncher-LP v{ver}", self)

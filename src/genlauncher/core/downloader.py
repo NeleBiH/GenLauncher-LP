@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 USER_AGENT = "GenLauncherLinux/0.1 (+https://github.com/p0ls3r/GenLauncher)"
 CHUNK = 1024 * 1024  # 1 MB buffer (matches Rewritten's DefaultBufferSize)
 MAX_RETRIES = 5
+
+# The host answered but refuses the file (deleted, moved, private); retrying cannot help.
+UNAVAILABLE_STATUSES = frozenset({401, 403, 404, 410})
 IDLE_TIMEOUT = 30.0  # seconds without progress before retry (Rewritten: 30s)
 MAX_RETRY_DELAY = 30.0  # cap for exponential backoff
 INITIAL_RETRY_DELAY = 1.0  # first retry delay
@@ -158,6 +161,14 @@ class Downloader:
                 headers["Range"] = f"bytes={existing}-"
             try:
                 with self._http.stream("GET", url, headers=headers) as response:
+                    if response.status_code in UNAVAILABLE_STATUSES:
+                        raise DownloadError(
+                            f"The download host no longer provides this file "
+                            f"(HTTP {response.status_code}).\n{url}"
+                        )
+                    if response.status_code >= 400:
+                        response.raise_for_status()
+
                     if expect_archive and not existing:
                         problem = _archive_content_problem(url, response)
                         if problem:
@@ -217,7 +228,12 @@ class Downloader:
             except DownloadError:
                 raise
             except httpx.HTTPStatusError as exc:
-                raise DownloadError(f"HTTP {exc.response.status_code} for {url}") from exc
+                last_error = DownloadError(f"HTTP {exc.response.status_code} for {url}")
+                if exc.response.status_code < 500 or attempt >= MAX_RETRIES:
+                    raise last_error from exc
+                log.warning("HTTP %s, retrying (%d/%d): %s", exc.response.status_code, attempt, MAX_RETRIES, url)
+                _retry_sleep(attempt)
+                continue
             except httpx.HTTPError as exc:
                 last_error = DownloadError(f"network error for {url}: {exc}")
                 log.warning("network error, retrying (%d/%d): %s", attempt, MAX_RETRIES, exc)

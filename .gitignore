@@ -8,7 +8,6 @@ build/
 
 # Testing
 .pytest_cache/
-tests/
 
 # Dev files (local only)
 devlog_genlauncher-linux.md
@@ -18,7 +17,6 @@ uv.lock
 .idea/
 
 # Reference repos and docs (local only)
-Reference/
 Documents/
 GenLauncherRewritten-reference/
 

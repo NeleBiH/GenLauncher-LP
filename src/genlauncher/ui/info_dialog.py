@@ -19,6 +19,7 @@ question, and as OK for the two that do not.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
@@ -39,8 +40,18 @@ from .theme import DEFAULT_COLORS, Colors, ui_font
 HEADER_HEIGHT = 56
 FOOTER_HEIGHT = 68
 BODY_MAX_HEIGHT = 330
+DIALOG_MIN_WIDTH = 600
 BADGE_SIZE = 52
 
+
+
+_LONG_TOKEN = re.compile(r"\S{40,}")
+_BREAK_AFTER = re.compile(r"([/?&=._%-])")
+
+
+def _breakable(text: str) -> str:
+    """Let word wrap split long URLs/paths, which QLabel never breaks on its own."""
+    return _LONG_TOKEN.sub(lambda m: _BREAK_AFTER.sub("\\1\u200b", m.group()), text)
 
 class DialogKind(str, Enum):
     """Which shape of message this is, as in ``InfoDialogKind``."""
@@ -173,7 +184,7 @@ class InfoDialog(QDialog):
         self._colors = colors
 
         self.setWindowTitle(main)
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(DIALOG_MIN_WIDTH)
         self.setMaximumHeight(520)
         self.setWindowFlags(
             Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint
@@ -257,7 +268,7 @@ class InfoDialog(QDialog):
         )
 
         if self._detail:
-            text = QLabel(self._detail, frame)
+            text = QLabel(_breakable(self._detail), frame)
             text.setWordWrap(True)
             text.setFont(ui_font(detail_font_size))
             text.setStyleSheet(f"color: {self._colors.text};")
@@ -265,6 +276,11 @@ class InfoDialog(QDialog):
 
         inner_layout.addWidget(frame)
         body.setWidget(inner)
+        # A scroll area's size hint ignores its content, so wrapped text was
+        # squeezed into a scrolling box even when the dialog had room for it.
+        content_height = inner_layout.heightForWidth(DIALOG_MIN_WIDTH)
+        if content_height > 0:
+            body.setMinimumHeight(min(content_height, BODY_MAX_HEIGHT + 40))
         layout.addWidget(body, 1)
 
         footer = QWidget(self)

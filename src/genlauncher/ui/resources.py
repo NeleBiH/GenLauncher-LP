@@ -17,9 +17,8 @@ BACKGROUND_ZH = image_path("Background.png")
 BACKGROUND_GENERALS = image_path("BackgroundGenerals.png")
 ADDMOD_BG = image_path("addmodbg.png")
 
-# Application icon (from GenLauncherRewritten-reference GenLauncherGo.ico).
-# Kept as separate PNG frames rather than the .ico itself: Qt's ICO reader is
-# not guaranteed on every Linux build, and a task manager wants a real PNG.
+# Application icon, rendered from app_icon.svg. Kept as PNG frames because a
+# task manager wants a real PNG and Qt's SVG plugin is not always installed.
 ICON_16 = image_path("app_icon_16.png")
 ICON_32 = image_path("app_icon_32.png")
 ICON_48 = image_path("app_icon_48.png")

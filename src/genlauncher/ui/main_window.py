@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QMetaObject, QSize, Slot, Qt, QTimer, Q_ARG
+from PySide6.QtCore import QFileSystemWatcher, QMetaObject, QPoint, QSize, Slot, Qt, QTimer, Q_ARG
 from PySide6.QtGui import (
     QBrush,
     QFont,
@@ -42,21 +43,24 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
 from ..core.catalog import CatalogLoadResult
 from ..core.config import GAME_FILES, Paths, Settings
+from ..core.disk import format_size, installed_size
 from ..core.downloader import Progress
 from ..core.link_overrides import LinkOverrides
 from ..core.linker import LinkStrategy
 from ..core.models import Catalog, ModificationVersion, ModType, RawModEntry
 from ..core.store import ModStore
 from .info_dialog import InfoDialog
+from .marquee import MarqueeLabel
 from .integrity_review_dialog import IntegrityReviewDialog
 from .mod_widgets import AddonItemWidget, ModItemWidget, make_blink_animation
-from .resources import BACKGROUND_GENERALS, BACKGROUND_ZH
+from .resources import BACKGROUND_GENERALS, BACKGROUND_ZH, app_icon
 from .theme import ui_font, DEFAULT_COLORS, Colors, colors_from_mod, generate_qss
 from .workers import (
     CatalogWorker,
@@ -72,6 +76,21 @@ from .workers import (
 )
 
 log = logging.getLogger("genlauncher.ui")
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Numeric release parts of a version ("0.3.0a1" -> (0, 3, 0)) for ordering."""
+    parts = []
+    for piece in version.lstrip("v").split("."):
+        digits = ""
+        for ch in piece:
+            if not ch.isdigit():
+                break
+            digits += ch
+        parts.append(int(digits) if digits else 0)
+        if len(digits) < len(piece):
+            break
+    return tuple(parts)
 
 
 class MainWindow(QWidget):
@@ -104,6 +123,10 @@ class MainWindow(QWidget):
         # .big whose MaxCameraHeight we patched and still owe a restore for.
         # Tracked on self so every exit path can put the game file back.
         self._pending_camera_big: Path | None = None
+        self._mod_bg_active = False
+        self._tray: QSystemTrayIcon | None = None
+        self._wanted_mod_bg: Path | None = None
+        self._list_inset = 0
         self._integrity_worker: IntegrityWorker | None = None
         self._patch_worker: GamePatchWorker | None = None
 
@@ -114,7 +137,82 @@ class MainWindow(QWidget):
             self._catalog = catalog_result.catalog
             self._show_warnings(catalog_result)
 
+        self._disk_usage_timer = QTimer(self)
+        self._disk_usage_timer.setSingleShot(True)
+        self._disk_usage_timer.timeout.connect(self._start_disk_usage_scan)
+        self._disk_usage_generation = 0
+        self._reconcile_store()
+        self._setup_mods_watcher()
         self._refresh_mod_list()
+        self._disk_usage_timer.start(0)
+
+    # ---- mods folder watching -----------------------------------------------
+
+    def _setup_mods_watcher(self):
+        self._mods_watcher = QFileSystemWatcher(self)
+        self._mods_watch_timer = QTimer(self)
+        self._mods_watch_timer.setSingleShot(True)
+        self._mods_watch_timer.timeout.connect(self._on_mods_folder_changed)
+        self._mods_watcher.directoryChanged.connect(
+            lambda _path: self._mods_watch_timer.start(1000)
+        )
+        self._rewatch_mods_dir()
+
+    def _rewatch_mods_dir(self):
+        """Watch every folder whose entries are mods, patches, addons or versions."""
+        from ..core.config import ADDONS_DIR, EXECUTABLES_DIR, PATCHES_DIR
+
+        root = self._paths.mods_dir
+        wanted: list[str] = []
+        if root.is_dir():
+            wanted.append(str(root))
+            try:
+                for top in root.iterdir():
+                    if not top.is_dir() or top.is_symlink():
+                        continue
+                    wanted.append(str(top))
+                    for sub in (PATCHES_DIR, ADDONS_DIR, EXECUTABLES_DIR):
+                        type_dir = top / sub
+                        if type_dir.is_dir():
+                            wanted.append(str(type_dir))
+                            wanted.extend(
+                                str(d) for d in type_dir.iterdir() if d.is_dir()
+                            )
+            except OSError as exc:
+                log.debug("cannot scan mods folder for watching: %s", exc)
+
+        current = set(self._mods_watcher.directories())
+        stale = [d for d in current if d not in wanted]
+        if stale:
+            self._mods_watcher.removePaths(stale)
+        new = [d for d in wanted if d not in current]
+        if new:
+            self._mods_watcher.addPaths(new)
+
+    def _reconcile_store(self) -> list[str]:
+        # Workers write the registry through their own ModStore; reload first
+        # so saving after the reconcile cannot drop what they just recorded.
+        self._store = ModStore(self._paths.data_dir)
+        try:
+            changed = self._store.reconcile_with_disk(self._paths.mods_dir)
+        except OSError as exc:
+            log.warning("mods folder reconcile failed: %s", exc)
+            return []
+        if changed:
+            log.info("mods folder changed outside the launcher: %s", ", ".join(changed[:10]))
+        return changed
+
+    def _on_mods_folder_changed(self):
+        if self._active_downloads or self._is_game_running or self._patch_worker is not None:
+            # Installs move folders around while in flight; look again later.
+            self._mods_watch_timer.start(5000)
+            return
+        changed = self._reconcile_store()
+        self._rewatch_mods_dir()
+        if changed:
+            self._refresh_mod_list()
+            self._refresh_patches_list()
+            self._refresh_addons_list()
 
     # ---- window setup -------------------------------------------------------
 
@@ -136,6 +234,37 @@ class MainWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if getattr(self, "_mod_bg_active", False):
+            self._update_list_inset()
+
+    # Mod backgrounds are drawn for the original 986px-wide launcher and carry
+    # its frame: three vertical lines whose right-most one ends at x=53.
+    _TEMPLATE_WIDTH = 986
+    _TEMPLATE_LEFT_LINES_END = 53
+    _LIST_INSET_CLEARANCE = 10
+
+    def _update_list_inset(self):
+        """Keep list cards clear of the frame lines in a stretched mod background."""
+        inset = 0
+        if self._mod_bg_active:
+            lines_end = round(
+                self._TEMPLATE_LEFT_LINES_END * self.width() / self._TEMPLATE_WIDTH
+            )
+            current_x = self.mods_list.viewport().mapTo(self, QPoint(0, 0)).x()
+            base_x = current_x - self._list_inset
+            inset = max(0, lines_end + self._LIST_INSET_CLEARANCE - base_x)
+        if inset == self._list_inset:
+            return
+        self._list_inset = inset
+        sheet = f"QListWidget {{ padding-left: {inset}px; }}" if inset else ""
+        for lst in (self.mods_list, self.patches_list, self.addons_list, self.exes_list):
+            lst.setStyleSheet(sheet)
+
+    def _set_background(self, pix: QPixmap, from_mod: bool):
+        self._bg_pixmap = pix
+        self._mod_bg_active = from_mod
+        self.update()
+        self._update_list_inset()
 
     # ---- catalog loading ----------------------------------------------------
 
@@ -256,8 +385,16 @@ class MainWindow(QWidget):
         self.addons_list = QListWidget()
         self.exes_list = QListWidget()
 
+        self.exes_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        # A plain click switches a patch/addon on or off for launch, like the
+        # original's tiles; Ctrl+click was never discoverable (issue #4).
+        self._syncing_selection = False
+        for lst in (self.patches_list, self.addons_list):
+            lst.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+            lst.itemSelectionChanged.connect(
+                lambda lw=lst: self._on_content_selection_changed(lw)
+            )
         for lst in (self.patches_list, self.addons_list, self.exes_list):
-            lst.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
             lst.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             lst.customContextMenuRequested.connect(
                 lambda pos, lw=lst: self._addon_context_menu(lw, pos)
@@ -282,51 +419,51 @@ class MainWindow(QWidget):
         right_panel.setSpacing(5)
 
         self.launch_btn = QPushButton("LAUNCH GAME")
-        self.launch_btn.setFixedHeight(40)
+        self.launch_btn.setFixedHeight(36)
         self.launch_btn.setFont(ui_font(13))
         self.launch_btn.setToolTip("Launch the game with selected mods through Steam/Proton")
         self.launch_btn.clicked.connect(self._on_launch)
         right_panel.addWidget(self.launch_btn)
 
         self.wb_btn = QPushButton("WORLD BUILDER")
-        self.wb_btn.setFixedHeight(40)
+        self.wb_btn.setFixedHeight(36)
         self.wb_btn.setFont(ui_font(13))
         self.wb_btn.setToolTip("Open Zero Hour World Builder map editor")
         self.wb_btn.clicked.connect(self._on_world_builder)
         right_panel.addWidget(self.wb_btn)
 
         self.windowed_btn = QPushButton("CHANGE TO FULL SCREEN")
-        self.windowed_btn.setFixedHeight(40)
-        self.windowed_btn.setFont(ui_font(13))
+        self.windowed_btn.setFixedHeight(36)
+        self.windowed_btn.setFont(ui_font(12))  # longest label is too wide at 13pt
         self.windowed_btn.setToolTip("Toggle between windowed and fullscreen mode")
         self.windowed_btn.clicked.connect(self._toggle_windowed)
         self._update_windowed_btn()
         right_panel.addWidget(self.windowed_btn)
 
         self.quickstart_btn = QPushButton("CHANGE TO NORMAL START")
-        self.quickstart_btn.setFixedHeight(40)
-        self.quickstart_btn.setFont(ui_font(13))
+        self.quickstart_btn.setFixedHeight(36)
+        self.quickstart_btn.setFont(ui_font(12))  # longest label is too wide at 13pt
         self.quickstart_btn.setToolTip("Toggle quickstart — skip intro videos and shell map")
         self.quickstart_btn.clicked.connect(self._toggle_quickstart)
         self._update_quickstart_btn()
         right_panel.addWidget(self.quickstart_btn)
 
         self.options_btn = QPushButton("OPTIONS")
-        self.options_btn.setFixedHeight(40)
+        self.options_btn.setFixedHeight(36)
         self.options_btn.setFont(ui_font(13))
         self.options_btn.setToolTip("Graphics, camera, resolution, and launcher settings")
         self.options_btn.clicked.connect(self._open_options)
         right_panel.addWidget(self.options_btn)
 
         self.exit_btn = QPushButton("EXIT")
-        self.exit_btn.setFixedHeight(40)
+        self.exit_btn.setFixedHeight(36)
         self.exit_btn.setFont(ui_font(13))
         self.exit_btn.setToolTip("Close the launcher")
         self.exit_btn.clicked.connect(self.close)
         right_panel.addWidget(self.exit_btn)
 
         # ---- Navigation group: tabs + actions ----
-        right_panel.addSpacing(12)
+        right_panel.addSpacing(8)
 
         self.mods_btn = QPushButton("Mods")
         self.mods_btn.setFixedHeight(25)
@@ -338,14 +475,14 @@ class MainWindow(QWidget):
         self.patches_btn = QPushButton("Patches")
         self.patches_btn.setFixedHeight(25)
         self.patches_btn.setFont(ui_font(10))
-        self.patches_btn.setToolTip("Show available patches")
+        self.patches_btn.setToolTip(self._TAB_HINTS["Patches"])
         self.patches_btn.clicked.connect(self._show_patches_tab)
         right_panel.addWidget(self.patches_btn)
 
         self.addons_btn = QPushButton("Addons")
         self.addons_btn.setFixedHeight(25)
         self.addons_btn.setFont(ui_font(10))
-        self.addons_btn.setToolTip("Show available addons")
+        self.addons_btn.setToolTip(self._TAB_HINTS["Addons"])
         self.addons_btn.clicked.connect(self._show_addons_tab)
         right_panel.addWidget(self.addons_btn)
 
@@ -411,7 +548,7 @@ class MainWindow(QWidget):
 
         self._latest_patch_tag = ""  # filled by background check
 
-        right_panel.addSpacing(12)
+        right_panel.addSpacing(8)
 
         # Update launcher button — hidden until background check finds a new version
         self.update_launcher_btn = QPushButton("UPDATE LAUNCHER")
@@ -421,23 +558,29 @@ class MainWindow(QWidget):
         self.update_launcher_btn.clicked.connect(self._on_update_launcher)
         self.update_launcher_btn.hide()
         self._latest_launcher_tag = ""
+        self._update_blink_on = False
+        self._update_blink_timer = QTimer(self)
+        self._update_blink_timer.setInterval(600)
+        self._update_blink_timer.timeout.connect(self._blink_update_btn)
         right_panel.addWidget(self.update_launcher_btn)
 
         # Push remaining space so buttons stay at top, about at bottom
         right_panel.addStretch(1)
 
         # Game selector dropdown
+        game_row = QHBoxLayout()
+        game_row.setSpacing(6)
         game_label = QLabel("Game:")
-        game_label.setFont(ui_font(9))
-        game_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_panel.addWidget(game_label)
+        game_label.setFont(ui_font(10))
+        game_row.addWidget(game_label)
 
         self._game_combo = QComboBox()
         self._game_combo.setFixedHeight(28)
         self._game_combo.setFont(ui_font(10))
         self._populate_game_combo()
         self._game_combo.currentIndexChanged.connect(self._on_game_changed)
-        right_panel.addWidget(self._game_combo)
+        game_row.addWidget(self._game_combo, 1)
+        right_panel.addLayout(game_row)
 
         right_panel.addSpacing(4)
 
@@ -463,11 +606,7 @@ class MainWindow(QWidget):
         right_panel.addWidget(self.about_btn)
 
         # Version label — click to copy
-        from importlib.metadata import version as pkg_version
-        try:
-            _ver = pkg_version("genlauncher-linux")
-        except Exception:
-            _ver = "?"
+        from .. import __version__ as _ver
         self._version_label = QLabel(f"v{_ver}")
         self._version_label.setFont(ui_font(9))
         self._version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -478,34 +617,6 @@ class MainWindow(QWidget):
         self._version_label.setToolTip("Click to copy version to clipboard")
         self._version_label.mousePressEvent = lambda _: self._copy_version(_ver)
         right_panel.addWidget(self._version_label)
-
-        # Launcher update button + progress (inside right panel, hidden by default)
-        self.launcher_update_btn = QPushButton("Update!")
-        self.launcher_update_btn.setFixedHeight(35)
-        self.launcher_update_btn.setFont(ui_font(13))
-        self.launcher_update_btn.hide()
-        right_panel.addWidget(self.launcher_update_btn)
-
-        progress_container = QWidget()
-        progress_container.setFixedHeight(24)
-        progress_layout = QVBoxLayout(progress_container)
-        progress_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.launcher_progress = QProgressBar()
-        self.launcher_progress.setFixedHeight(24)
-        self.launcher_progress.hide()
-        progress_layout.addWidget(self.launcher_progress)
-
-        self.launcher_progress_text = QLabel()
-        self.launcher_progress_text.setFont(ui_font(9, bold=True))
-        self.launcher_progress_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.launcher_progress_text.setStyleSheet(
-            f"color: {DEFAULT_COLORS.download_text};"
-        )
-        self.launcher_progress_text.hide()
-        right_panel.addWidget(progress_container)
-        self.launcher_progress_text.setParent(progress_container)
-        self.launcher_progress_text.setGeometry(2, 2, 225, 20)
 
         content_row.addWidget(right_frame)
         main_layout.addLayout(content_row, 1)  # stretch=1 for main content
@@ -528,6 +639,18 @@ class MainWindow(QWidget):
         self.version_label = QLabel()
         self.version_label.setFixedHeight(0)
         bottom_bar.addWidget(self.version_label)
+
+        # Space used by installed mods; filled in by _start_disk_usage_scan.
+        self._disk_usage_label = QLabel()
+        self._disk_usage_label.setFixedHeight(20)
+        self._disk_usage_label.setFont(ui_font(10))
+        bottom_bar.addWidget(self._disk_usage_label)
+        bottom_bar.addSpacing(12)
+
+        self._update_marquee = MarqueeLabel(parent=self)
+        self._update_marquee.clicked.connect(self._on_update_launcher)
+        bottom_bar.addWidget(self._update_marquee, 10)
+        bottom_bar.addSpacing(12)
 
         bottom_bar.addStretch(1)
 
@@ -553,7 +676,6 @@ class MainWindow(QWidget):
         self._list_stack.setCurrentIndex(0)
         self.add_mod_btn.show()
         self.add_from_files_btn.setText("Add mod from files")
-        self.exes_btn.show()
 
     def _show_patches_tab(self):
         self._list_stack.setCurrentIndex(1)
@@ -590,6 +712,7 @@ class MainWindow(QWidget):
         self._refresh_mod_list()
 
     def _refresh_mod_list(self):
+        self._disk_usage_timer.start(1500)
         self.mods_list.clear()
         if not self._catalog:
             return
@@ -720,42 +843,148 @@ class MainWindow(QWidget):
     BASE_GAME_ALIASES = frozenset({"original game", ""})
 
     def _refresh_patches_list(self):
-        self.patches_list.clear()
-        if not self._selected_mod:
-            return
-        mod_name = self._selected_mod.mod_name.casefold()
-        for mv in self._catalog_patches:
-            dep = mv.dependence_name.casefold()
-            if dep != mod_name:
-                continue
-            self._add_addon_item(self.patches_list, mv)
-        # Patches and addons for the vanilla game are useful regardless of which
-        # mod is selected, and the catalog files them under "Original Game".
-        # Without this they could never be reached from the GUI.
-        for mv in self._catalog_patches:
-            if mv.dependence_name.casefold() in self.BASE_GAME_ALIASES:
+        self._disk_usage_timer.start(1500)
+        with self._rebuilding(self.patches_list):
+            if not self._selected_mod:
+                return
+            mod_name = self._selected_mod.mod_name.casefold()
+            for mv in self._catalog_patches:
+                dep = mv.dependence_name.casefold()
+                if dep != mod_name:
+                    continue
                 self._add_addon_item(self.patches_list, mv)
+            # Patches and addons for the vanilla game are useful regardless of which
+            # mod is selected, and the catalog files them under "Original Game".
+            # Without this they could never be reached from the GUI.
+            for mv in self._catalog_patches:
+                if mv.dependence_name.casefold() in self.BASE_GAME_ALIASES:
+                    self._add_addon_item(self.patches_list, mv)
 
     def _refresh_addons_list(self):
-        self.addons_list.clear()
-        if not self._selected_mod:
+        self._disk_usage_timer.start(1500)
+        with self._rebuilding(self.addons_list):
+            if not self._selected_mod:
+                return
+            mod_name = self._selected_mod.mod_name.casefold()
+
+            # Collect patch names for this mod (addons can depend on patches too)
+            patch_names = set()
+            for mv in self._catalog_patches:
+                if mv.dependence_name.casefold() in (mod_name, *self.BASE_GAME_ALIASES):
+                    patch_names.add(mv.name.casefold())
+
+            for mv in self._catalog_addons:
+                dep = mv.dependence_name.casefold()
+                base = dep in self.BASE_GAME_ALIASES
+                # Show addon if it depends on this mod, on one of its patches,
+                # or on the vanilla game.
+                if dep != mod_name and dep not in patch_names and not base:
+                    continue
+                self._add_addon_item(self.addons_list, mv)
+
+    # ---- patch/addon selection ------------------------------------------------
+
+    @contextmanager
+    def _rebuilding(self, lst: QListWidget):
+        """Refill a patch/addon list without forgetting what the user switched on."""
+        lst.blockSignals(True)
+        try:
+            lst.clear()
+            yield
+            chosen = set(self._settings.selected_content)
+            for i in range(lst.count()):
+                item = lst.item(i)
+                mv = item.data(Qt.ItemDataRole.UserRole)
+                if mv.name.casefold() in chosen and self._installed_version(mv):
+                    item.setSelected(True)
+                    if lst is self.patches_list:
+                        break  # only one patch can be active
+        finally:
+            lst.blockSignals(False)
+        self._update_selection_labels()
+
+    def _installed_version(self, mv: ModificationVersion) -> ModificationVersion | None:
+        """The installed copy of a catalog entry, even if it is an older version."""
+        found = self._store.find_version(mv.name, mv.version)
+        if found:
+            return found
+        installed = self._store.get(mv.name)
+        return installed.latest if installed else None
+
+    def _on_content_selection_changed(self, lst: QListWidget):
+        if self._syncing_selection:
             return
-        mod_name = self._selected_mod.mod_name.casefold()
+        self._syncing_selection = True
+        try:
+            items = [lst.item(i) for i in range(lst.count())]
+            for item in items:
+                # Nothing to load for an entry that isn't installed.
+                if item.isSelected() and not self._installed_version(
+                    item.data(Qt.ItemDataRole.UserRole)
+                ):
+                    item.setSelected(False)
+            if lst is self.patches_list:
+                selected = [item for item in items if item.isSelected()]
+                if len(selected) > 1:
+                    current = lst.currentItem()
+                    keep = current if current in selected else selected[-1]
+                    for item in selected:
+                        if item is not keep:
+                            item.setSelected(False)
+            chosen = set(self._settings.selected_content)
+            for item in items:
+                name = item.data(Qt.ItemDataRole.UserRole).name.casefold()
+                if item.isSelected():
+                    chosen.add(name)
+                else:
+                    chosen.discard(name)
+            self._settings.selected_content = sorted(chosen)
+            self._settings.save()
+        finally:
+            self._syncing_selection = False
+        self._update_selection_labels()
 
-        # Collect patch names for this mod (addons can depend on patches too)
-        patch_names = set()
-        for mv in self._catalog_patches:
-            if mv.dependence_name.casefold() in (mod_name, *self.BASE_GAME_ALIASES):
-                patch_names.add(mv.name.casefold())
+    _TAB_HINTS = {
+        "Patches": "Click an installed patch to switch it on (one at a time) —\n"
+                   "it is loaded together with the selected mod.",
+        "Addons": "Click installed addons to switch them on or off —\n"
+                  "the ones switched on are loaded together with the selected mod.",
+    }
 
-        for mv in self._catalog_addons:
-            dep = mv.dependence_name.casefold()
-            base = dep in self.BASE_GAME_ALIASES
-            # Show addon if it depends on this mod, on one of its patches,
-            # or on the vanilla game.
-            if dep != mod_name and dep not in patch_names and not base:
-                continue
-            self._add_addon_item(self.addons_list, mv)
+    def _update_selection_labels(self):
+        """Show on the tab buttons and LAUNCH GAME what will be loaded."""
+        name = self._selected_mod.mod_name if self._selected_mod else ""
+        on = {
+            lst: [
+                lst.item(i).data(Qt.ItemDataRole.UserRole).name
+                for i in range(lst.count())
+                if lst.item(i).isSelected()
+            ]
+            for lst in (self.patches_list, self.addons_list)
+        }
+        for btn, lst, label in (
+            (self.patches_btn, self.patches_list, "Patches"),
+            (self.addons_btn, self.addons_list, "Addons"),
+        ):
+            count = len(on[lst])
+            suffix = f"  ✓{count}" if count else ""
+            shown = name
+            if name and btn.width() > 0:
+                # Long mod names would push the text past both button edges.
+                metrics = btn.fontMetrics()
+                room = btn.width() - 16 - metrics.horizontalAdvance(f"{label} for {suffix}")
+                shown = metrics.elidedText(name, Qt.TextElideMode.ElideRight, max(room, 20))
+            text = f"{label} for {shown}" if name else label
+            btn.setText(text + suffix)
+            hint = self._TAB_HINTS[label]
+            btn.setToolTip(f"{label} for {name}\n\n{hint}" if name else hint)
+        loaded = [name] if name else []
+        loaded += on[self.patches_list] + on[self.addons_list]
+        self.launch_btn.setToolTip(
+            "Launch the game through Steam/Proton with:\n" + "\n".join(f"• {n}" for n in loaded)
+            if loaded
+            else "Launch the game through Steam/Proton"
+        )
 
     def _refresh_exes_list(self):
         self.exes_list.clear()
@@ -829,6 +1058,8 @@ class MainWindow(QWidget):
     def _on_mod_selected(self, row: int):
         if row < 0:
             self._selected_mod = None
+            self._refresh_patches_list()
+            self._refresh_addons_list()
             self._apply_theme(DEFAULT_COLORS)
             return
         item = self.mods_list.item(row)
@@ -836,10 +1067,11 @@ class MainWindow(QWidget):
             entry = item.data(Qt.ItemDataRole.UserRole)
             if isinstance(entry, RawModEntry):
                 self._selected_mod = entry
-                # Update tab labels
                 name = entry.mod_name
-                self.patches_btn.setText(f"Patches for {name}")
-                self.addons_btn.setText(f"Addons for {name}")
+                # The launch reads these lists, so they must show this mod's
+                # patches/addons — not the previous mod's.
+                self._refresh_patches_list()
+                self._refresh_addons_list()
                 # Save last selected mod
                 self._settings.last_selected_mod = name
                 self._settings.save()
@@ -888,28 +1120,24 @@ class MainWindow(QWidget):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(generate_qss(colors))
-        # Update hardcoded color references
-        self.launcher_progress_text.setStyleSheet(
-            f"color: {colors.download_text};"
-        )
 
     def _reset_background(self):
         """Restore the default background image."""
         game = self._settings.game
         bg_path = BACKGROUND_GENERALS if game == "generals" else BACKGROUND_ZH
-        self._bg_pixmap = QPixmap(bg_path)
-        self.update()
+        self._wanted_mod_bg = None
+        self._set_background(QPixmap(bg_path), from_mod=False)
 
     def _load_mod_background(self, mod_name: str, url: str):
         """Load a custom mod background from cache or download it."""
         safe = mod_name.replace("/", "_").replace("\\", "_")
         cache_file = self._paths.cache_dir / "images" / f"{safe}_bg.png"
+        self._wanted_mod_bg = cache_file
 
         if cache_file.exists():
             pix = QPixmap(str(cache_file))
             if not pix.isNull():
-                self._bg_pixmap = pix
-                self.update()
+                self._set_background(pix, from_mod=True)
                 return
 
         # Download in background thread (reuse ImageLoader pattern)
@@ -937,6 +1165,8 @@ class MainWindow(QWidget):
     @Slot(str)
     def _set_mod_background_str(self, path_str: str):
         """Thread-safe slot wrapper for _set_mod_background."""
+        if Path(path_str) != self._wanted_mod_bg:
+            return  # another mod was selected while this one downloaded
         self._set_mod_background(Path(path_str))
 
     def _set_mod_background(self, path: Path):
@@ -945,8 +1175,48 @@ class MainWindow(QWidget):
         if not os.environ.get("GENLAUNCHER_NO_BG"):
             pix = QPixmap(str(path))
         if not pix.isNull():
-            self._bg_pixmap = pix
-            self.update()
+            self._set_background(pix, from_mod=True)
+
+    # ---- disk usage ---------------------------------------------------------
+
+    def _start_disk_usage_scan(self):
+        """Measure installed mods off the UI thread (large mods hold many files)."""
+        import threading
+
+        self._disk_usage_generation += 1
+        generation = self._disk_usage_generation
+        mods_root = self._paths.mods_dir
+        mods = list(self._store.all())
+
+        def _scan():
+            sizes = sorted(
+                ((installed_size(mod, mods_root), mod.name) for mod in mods),
+                reverse=True,
+            )
+            total = sum(size for size, _name in sizes)
+            lines = [f"{format_size(size)}  —  {name}" for size, name in sizes if size]
+            if not lines:
+                lines = ["Nothing installed yet"]
+            tooltip = f"Installed mods, patches and addons\n{mods_root}\n\n" + "\n".join(lines)
+            try:
+                QMetaObject.invokeMethod(
+                    self, "_show_disk_usage",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(int, generation),
+                    Q_ARG(str, f"Mods on disk: {format_size(total)}"),
+                    Q_ARG(str, tooltip),
+                )
+            except RuntimeError:
+                pass  # window already closed
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+    @Slot(int, str, str)
+    def _show_disk_usage(self, generation: int, text: str, tooltip: str):
+        if generation != self._disk_usage_generation:
+            return  # a newer scan is running
+        self._disk_usage_label.setText(text)
+        self._disk_usage_label.setToolTip(tooltip)
 
     # ---- downloads ----------------------------------------------------------
 
@@ -1334,7 +1604,7 @@ class MainWindow(QWidget):
             runner.started_ok.connect(lambda: self._on_game_started())
 
             if self._settings.hide_launcher:
-                self.hide()
+                self._hide_to_tray()
 
             runner.start()
 
@@ -1445,7 +1715,7 @@ class MainWindow(QWidget):
                     )
                     return
                 if self._settings.hide_launcher:
-                    self.hide()
+                    self._hide_to_tray()
                 launch_wb()
 
             link_worker.finished.connect(on_linked)
@@ -1466,10 +1736,49 @@ class MainWindow(QWidget):
     def _on_game_started(self):
         log.info("Game started")
 
+    # ---- system tray --------------------------------------------------------
+
+    def _hide_to_tray(self):
+        """Get out of the way while the game runs ("Hide launcher" option)."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            # Without a tray a hidden window could only come back when the
+            # game exits; minimizing keeps it on the taskbar.
+            self.showMinimized()
+            return
+        if self._tray is None:
+            self._tray = QSystemTrayIcon(app_icon(), self)
+            self._tray.setToolTip("GenLauncher-LP — game running")
+            menu = QMenu(self)
+            menu.addAction("Show GenLauncher-LP", self._restore_from_tray)
+            self._tray.setContextMenu(menu)
+            self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+        self.hide()
+
+    def _on_tray_activated(self, reason):
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self._restore_from_tray()
+
+    def _restore_from_tray(self):
+        """Bring the window back if it was hidden or minimized for the game."""
+        if self.isHidden() or self.isMinimized():
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Every way back (tray click, game exit) ends here.
+        if self._tray is not None:
+            self._tray.hide()
+
     def _on_game_exited(self, install, strategy, returncode: int, patched_big=None, duration: float = 0.0):
         self._is_game_running = False
         self._game_runner = None
-        self.show()
+        self._restore_from_tray()
 
         # Crash detection: if the game ran for less than 12 seconds, it likely crashed
         if duration > 0 and duration < 12.0:
@@ -1500,7 +1809,7 @@ class MainWindow(QWidget):
     def _on_game_error(self, install, strategy, error: str, patched_big=None):
         self._is_game_running = False
         self._game_runner = None
-        self.show()
+        self._restore_from_tray()
         InfoDialog.critical(self, "Game Error", error)
 
         # Restore camera height backup
@@ -1570,7 +1879,7 @@ class MainWindow(QWidget):
             if item and item.isSelected():
                 mv = item.data(Qt.ItemDataRole.UserRole)
                 if isinstance(mv, ModificationVersion):
-                    inst = self._store.find_version(mv.name, mv.version)
+                    inst = self._installed_version(mv)
                     if inst:
                         versions.append(inst)
 
@@ -1580,7 +1889,7 @@ class MainWindow(QWidget):
             if item and item.isSelected():
                 mv = item.data(Qt.ItemDataRole.UserRole)
                 if isinstance(mv, ModificationVersion):
-                    inst = self._store.find_version(mv.name, mv.version)
+                    inst = self._installed_version(mv)
                     if inst:
                         versions.append(inst)
 
@@ -1592,7 +1901,7 @@ class MainWindow(QWidget):
             if item and item.isSelected():
                 mv = item.data(Qt.ItemDataRole.UserRole)
                 if isinstance(mv, ModificationVersion):
-                    inst = self._store.find_version(mv.name, mv.version)
+                    inst = self._installed_version(mv)
                     if inst:
                         versions.append(inst)
 
@@ -1955,6 +2264,31 @@ class MainWindow(QWidget):
                         or self._selected_mod.mod_name
                     )
 
+            from ..core.models import ORIGINAL_GAME_ALIAS
+
+            # The registry is keyed by name alone, so content of another type
+            # or for another mod with this name would be overwritten.
+            owner = self._store.get(name)
+            dep = (mv.dependence_name or ORIGINAL_GAME_ALIAS).casefold()
+            if owner is not None and (
+                owner.mod_type is not mod_type
+                or (owner.dependence_name or ORIGINAL_GAME_ALIAS).casefold() != dep
+            ):
+                InfoDialog.warning(
+                    self, "Name In Use",
+                    f"'{name}' is already used by another installed "
+                    f"{owner.mod_type.value.lower()}.\nChoose a different name.",
+                )
+                return
+
+            if mv.folder_name(self._paths.mods_dir).exists():
+                InfoDialog.warning(
+                    self, "Already Installed",
+                    f"{name} {version} is already installed.\n"
+                    "Delete it first or choose a different version.",
+                )
+                return
+
             installer = Installer(self._paths.mods_dir)
             try:
                 # One staging area for all selected files: install() per file
@@ -1994,6 +2328,11 @@ class MainWindow(QWidget):
             return
 
         menu = QMenu(self)
+        installed = self._store.get(entry.mod_name)
+        if installed and installed.versions:
+            size = installed_size(installed, self._paths.mods_dir)
+            menu.addAction(f"Size on disk: {format_size(size)}").setEnabled(False)
+            menu.addSeparator()
         menu.addAction("Open mod folder", lambda: self._open_mod_folder(entry))
         menu.addAction("Open game folder", lambda: self._open_game_folder())
         menu.addAction("Open maps folder", lambda: self._open_maps_folder())
@@ -2043,6 +2382,9 @@ class MainWindow(QWidget):
 
         menu = QMenu(self)
         if is_installed:
+            size = installed_size(installed, self._paths.mods_dir)
+            menu.addAction(f"Size on disk: {format_size(size)}").setEnabled(False)
+            menu.addSeparator()
             menu.addAction(
                 f"Delete {mv.mod_type.value.lower()}",
                 lambda: self._delete_addon(mv),
@@ -2271,13 +2613,42 @@ class MainWindow(QWidget):
     def _on_launcher_check_result(self, latest_tag: str, current: str):
         """Show or hide the update button based on version comparison."""
         self._launcher_check_worker = None
-        if not latest_tag or latest_tag == current:
+        if not latest_tag or _version_key(latest_tag) <= _version_key(current):
+            self._set_update_alert(False)
             self.update_launcher_btn.hide()
             return
         self._latest_launcher_tag = latest_tag
         self.update_launcher_btn.setText(f"UPDATE TO v{latest_tag}")
-        self.update_launcher_btn.setStyleSheet("color: #ffcc00;")
         self.update_launcher_btn.show()
+        self._set_update_alert(True)
+
+    _UPDATE_BTN_STYLE = "color: #ffcc00; border-color: #ffcc00;"
+    _UPDATE_BTN_BLINK_STYLE = "color: #0b0b0b; background: #ffcc00; border-color: #ffcc00;"
+
+    def _set_update_alert(self, active: bool):
+        """Blink the update button and scroll a notice in the status bar."""
+        if active:
+            self._update_marquee.start(
+                f"New version of GenLauncher-LP is live: v{self._latest_launcher_tag}"
+                "  —  click here or UPDATE to install it"
+            )
+            self._update_blink_timer.start()
+        else:
+            self._update_marquee.stop()
+            self._update_blink_timer.stop()
+        self._update_blink_on = False
+        self.update_launcher_btn.setStyleSheet(self._UPDATE_BTN_STYLE)
+
+    def _restore_update_alert(self):
+        self.update_launcher_btn.setEnabled(True)
+        self.update_launcher_btn.setText(f"UPDATE TO v{self._latest_launcher_tag}")
+        self._set_update_alert(True)
+
+    def _blink_update_btn(self):
+        self._update_blink_on = not self._update_blink_on
+        self.update_launcher_btn.setStyleSheet(
+            self._UPDATE_BTN_BLINK_STYLE if self._update_blink_on else self._UPDATE_BTN_STYLE
+        )
 
     def _on_update_launcher(self):
         """Run git pull + pip install to update the launcher."""
@@ -2288,8 +2659,12 @@ class MainWindow(QWidget):
         if not latest_tag:
             return
 
+        if not self.update_launcher_btn.isEnabled():
+            return  # already updating (the status bar notice is clickable too)
+        self._set_update_alert(False)
         self.update_launcher_btn.setEnabled(False)
         self.update_launcher_btn.setText("Updating...")
+        QApplication.processEvents()  # repaint before the blocking git/pip calls
         project_dir = Path(__file__).resolve().parent.parent.parent.parent
 
         # ── Step 1: git pull ──
@@ -2305,7 +2680,7 @@ class MainWindow(QWidget):
                 "Install git and try again, or update manually:\n"
                 "  cd ~/GenLauncher-LP && git pull",
             )
-            self.update_launcher_btn.setEnabled(True)
+            self._restore_update_alert()
             return
         except subprocess.CalledProcessError as exc:
             stderr = (exc.stderr or "").strip()
@@ -2319,7 +2694,7 @@ class MainWindow(QWidget):
             else:
                 msg = f"git pull failed:\n{stderr}" if stderr else "git pull failed."
             InfoDialog.critical(self, "Update Failed", msg)
-            self.update_launcher_btn.setEnabled(True)
+            self._restore_update_alert()
             return
 
         # ── Step 2: pip install — try multiple approaches ──
@@ -2513,6 +2888,23 @@ class MainWindow(QWidget):
             self._patch_worker.cancel()
             self._patch_worker.wait(15000)
             self._patch_worker = None
+
+        # Background network workers are parented to this window; destroying it
+        # while one still runs aborts the process. Their results are no longer
+        # wanted, so silence them and wait with the window already gone.
+        self._mods_watch_timer.stop()
+        self.hide()
+        for worker in (
+            getattr(self, "_catalog_worker", None),
+            getattr(self, "_patch_check_worker", None),
+            getattr(self, "_launcher_check_worker", None),
+            self._image_loader,
+        ):
+            if worker is not None and worker.isRunning():
+                worker.blockSignals(True)
+                worker.requestInterruption()
+                if not worker.wait(60000):
+                    log.warning("%s did not stop in time", type(worker).__name__)
 
         # A link that is still in flight owns the game folder; unlink it so we
         # do not leave symlinks behind, then restore any camera patch.

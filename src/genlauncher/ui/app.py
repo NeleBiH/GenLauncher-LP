@@ -127,9 +127,9 @@ def run_gui(argv: list[str] | None = None) -> int:
     """Launch the GenLauncher GUI."""
     from logging.handlers import RotatingFileHandler
 
-    log_dir = Paths().data_dir
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "genlauncher.log"
+    # Paths.log_file is also what About → Copy Log Path and the crash dialog show.
+    log_file = Paths().log_file
+    log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
         level=logging.INFO,

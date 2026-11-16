@@ -47,6 +47,11 @@ directly on your system, no Wine needed. Based on the GPL-3.0 GenLauncher Rewrit
 - **Game selector** — switch between Generals and Zero Hour on the fly, catalog reloads automatically
 - **Auto patch check** — background version check shows patch status (green = up to date, yellow = update available)
 - **Custom link overrides** — fix broken catalog download URLs locally
+- **Patch & addon selection** — click an installed patch (one at a time) or addons to switch them on; the choice is remembered and shown on the tab buttons (✓)
+- **Disk usage** — total size of installed mods in the status bar, per-mod size in the right-click menu
+- **System tray** — with "Hide GenLauncher while the game is running" the launcher waits in the tray
+- **Launcher update notice** — scrolling status-bar message and a blinking UPDATE button when a new release is out
+- **Mods folder watching** — mods added or removed by hand are picked up automatically
 
 ## Requirements
 
@@ -125,6 +130,11 @@ The game directory is only modified while mods are linked.
 - **[TheSuperHackers](https://github.com/TheSuperHackers)** — community game patches and the [GeneralsGameCode](https://github.com/TheSuperHackers/GeneralsGameCode) project
 - **Electronic Arts** — for [open-sourcing](https://github.com/electronicarts/CnC_Generals_Zero_Hour) Generals and Zero Hour under GPL-3.0
 - **[PySide6](https://www.qt.io/qt-for-python)** — Qt for Python, powering the entire UI
+
+## Contributing
+
+Bug reports and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Security problems: please follow [SECURITY.md](SECURITY.md).
 
 ## License
 

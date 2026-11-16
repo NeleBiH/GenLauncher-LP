@@ -6,8 +6,6 @@ archives.
 
 from __future__ import annotations
 
-import re
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -21,8 +19,18 @@ from .info_dialog import InfoDialog
 from .resources import ADDMOD_BG
 from .theme import ui_font, DEFAULT_COLORS
 
-# Allow word chars, dots, @, hyphens
-_SANITIZE = re.compile(r"[^\w.@-]", re.UNICODE)
+_MAX_SEGMENT_BYTES = 255
+
+
+def _folder_name_problem(value: str) -> str | None:
+    """Why `value` cannot be used as a single folder name, or None."""
+    if value in (".", ".."):
+        return "can't be '.' or '..'"
+    if any(c in value for c in "/\\") or any(ord(c) < 32 for c in value):
+        return "can't contain slashes or control characters"
+    if len(value.encode("utf-8")) > _MAX_SEGMENT_BYTES:
+        return f"is too long (max {_MAX_SEGMENT_BYTES} bytes)"
+    return None
 
 
 class ManualAddModWindow(QDialog):
@@ -99,13 +107,14 @@ class ManualAddModWindow(QDialog):
             InfoDialog.warning(self, "Error", "Version must contain at least one digit.")
             return
 
-        # Sanitize
-        name = _SANITIZE.sub("", name)
-        version = _SANITIZE.sub("", version)
-
-        if not name or not version:
-            InfoDialog.warning(self, "Error", "Name or version contains only invalid characters.")
-            return
+        for label, value in (("Name", name), ("Version", version)):
+            problem = _folder_name_problem(value)
+            if problem:
+                InfoDialog.warning(
+                    self, "Error",
+                    f"{label} {problem}. It is used as a folder name; choose a different one.",
+                )
+                return
 
         self.confirmed.emit(name, version)
         self.accept()

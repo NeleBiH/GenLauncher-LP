@@ -75,6 +75,7 @@ class CatalogWorker(QThread):
                 cache_dir=self._cache_dir,
                 ttl=self._ttl,
                 link_overrides=self._overrides,
+                cancel=self.isInterruptionRequested,
             ) as client:
                 result, mods, patches, addons, exes = client.load_everything(
                     self._game
@@ -617,11 +618,7 @@ class LauncherUpdateCheckWorker(QThread):
 
     def run(self):
         import httpx
-        from importlib.metadata import version as pkg_version
-        try:
-            current = pkg_version("genlauncher-linux")
-        except Exception:
-            current = "0.0.0"
+        from .. import __version__ as current
         try:
             with httpx.Client(timeout=15, follow_redirects=True) as client:
                 resp = client.get(
@@ -752,15 +749,19 @@ class ImageLoader(QThread):
     def run(self):
         import httpx
 
+        from .. import __version__ as current_version
+
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         last_request = 0.0
 
         with httpx.Client(
             timeout=20,
             follow_redirects=True,
-            headers={"User-Agent": "genlauncher-linux/0.1"},
+            headers={"User-Agent": f"genlauncher-linux/{current_version}"},
         ) as client:
             for mod_name, url in self._requests:
+                if self.isInterruptionRequested():
+                    break
                 if not url:
                     self.image_missing.emit(mod_name)
                     continue

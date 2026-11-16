@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a525c"/><stop offset="1" stop-color="#14181d"/></linearGradient>
+    <radialGradient id="disc" cx="0.5" cy="0.38" r="0.7"><stop offset="0" stop-color="#2b3a55"/><stop offset="1" stop-color="#0b111c"/></radialGradient>
+  </defs>
+  <circle cx="128" cy="128" r="124" fill="url(#ring)" stroke="#05070a" stroke-width="4"/>
+  <circle cx="128" cy="128" r="101" fill="none" stroke="#E8C252" stroke-width="5"/>
+  <circle cx="128" cy="128" r="96" fill="url(#disc)"/>
+  <polygon points="113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0 113.0,0.0" fill="none"/>
+  <polygon points="18.0,120.0 19.9,125.4 25.6,125.5 21.0,129.0 22.7,134.5 18.0,131.2 13.3,134.5 15.0,129.0 10.4,125.5 16.1,125.4" fill="#E8C252"/><polygon points="238.0,120.0 239.9,125.4 245.6,125.5 241.0,129.0 242.7,134.5 238.0,131.2 233.3,134.5 235.0,129.0 230.4,125.5 236.1,125.4" fill="#E8C252"/>
+  
+  <g transform="translate(46.0,99.4) scale(0.5430)">
+    <path fill-rule="evenodd" d="M24.0,0.0 L100.0,0.0 L100.0,26.0 L38.0,26.0 L26.0,38.0 L26.0,82.0 L38.0,94.0 L62.0,94.0 L74.0,82.0 L74.0,73.0 L50.0,73.0 L50.0,47.0 L100.0,47.0 L100.0,96.0 L76.0,120.0 L24.0,120.0 L0.0,96.0 L0.0,24.0 Z M112.0,0.0 L138.0,0.0 L138.0,94.0 L190.0,94.0 L190.0,120.0 L136.0,120.0 L112.0,96.0 Z M202.0,0.0 L278.0,0.0 L302.0,24.0 L302.0,48.0 L278.0,72.0 L228.0,72.0 L228.0,120.0 L202.0,120.0 Z M228.0,26.0 L276.0,26.0 L276.0,46.0 L228.0,46.0 Z" transform="translate(6,8)" fill="#05080d" opacity="0.75"/>
+    <path fill-rule="evenodd" d="M24.0,0.0 L100.0,0.0 L100.0,26.0 L38.0,26.0 L26.0,38.0 L26.0,82.0 L38.0,94.0 L62.0,94.0 L74.0,82.0 L74.0,73.0 L50.0,73.0 L50.0,47.0 L100.0,47.0 L100.0,96.0 L76.0,120.0 L24.0,120.0 L0.0,96.0 L0.0,24.0 Z M112.0,0.0 L138.0,0.0 L138.0,94.0 L190.0,94.0 L190.0,120.0 L136.0,120.0 L112.0,96.0 Z M202.0,0.0 L278.0,0.0 L302.0,24.0 L302.0,48.0 L278.0,72.0 L228.0,72.0 L228.0,120.0 L202.0,120.0 Z M228.0,26.0 L276.0,26.0 L276.0,46.0 L228.0,46.0 Z" fill="url(#lg)" stroke="#3a2a05" stroke-width="5" stroke-linejoin="miter"/>
+    <path fill-rule="evenodd" d="M24.0,0.0 L100.0,0.0 L100.0,26.0 L38.0,26.0 L26.0,38.0 L26.0,82.0 L38.0,94.0 L62.0,94.0 L74.0,82.0 L74.0,73.0 L50.0,73.0 L50.0,47.0 L100.0,47.0 L100.0,96.0 L76.0,120.0 L24.0,120.0 L0.0,96.0 L0.0,24.0 Z M112.0,0.0 L138.0,0.0 L138.0,94.0 L190.0,94.0 L190.0,120.0 L136.0,120.0 L112.0,96.0 Z M202.0,0.0 L278.0,0.0 L302.0,24.0 L302.0,48.0 L278.0,72.0 L228.0,72.0 L228.0,120.0 L202.0,120.0 Z M228.0,26.0 L276.0,26.0 L276.0,46.0 L228.0,46.0 Z" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2" transform="translate(-1.5,-1.5)"/>
+  </g>
+  <defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffe08a"/><stop offset="0.55" stop-color="#ffe08a"/>
+    <stop offset="0.56" stop-color="#c8961e"/><stop offset="1" stop-color="#c8961e"/></linearGradient></defs>
+</svg>

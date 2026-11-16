@@ -177,6 +177,7 @@ class Settings:
     catalog_ttl: int = 900  # seconds
     last_selected_mod: str = ""  # remember last selected mod name
     mod_ratings: dict[str, int] = field(default_factory=dict)  # mod_name → 0-5 stars
+    selected_content: list[str] = field(default_factory=list)  # casefolded patch/addon names switched on for launch
     setup_done: bool = False  # first-run wizard completed
 
     _paths: Paths = field(default_factory=Paths, repr=False, compare=False)

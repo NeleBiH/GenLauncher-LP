@@ -346,6 +346,10 @@ class OptionsWindow(QDialog):
 
         self.hide_launcher = QCheckBox("Hide GenLauncher while the game is running", self)
         self.hide_launcher.setGeometry(rx, ry, rw, 22)
+        self.hide_launcher.setToolTip(
+            "While the game runs the launcher waits in the system tray —\n"
+            "click the tray icon to bring it back."
+        )
         ry += 28
 
         # Vulkan / DXVK toggle
